@@ -85,6 +85,19 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
 
 The server binds to `127.0.0.1` only.
 
+### Windows double-click startup
+
+After the initial setup, double-click `Admission Helper 실행.vbs` in the project
+folder. The launcher:
+
+- opens the app immediately when its local server is already running;
+- starts the server in the background when it is stopped;
+- waits until the server is ready, then opens the browser;
+- refuses to start a duplicate server when port 3000 belongs to another app.
+
+Background server output is stored in `.local/app-server.log` and
+`.local/app-server-error.log`. The `.local` directory is excluded from Git.
+
 ## Notion Setup
 
 1. In the work Notion workspace, create a Notion internal connection.
