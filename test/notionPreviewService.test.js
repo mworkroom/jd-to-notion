@@ -101,6 +101,45 @@ test('preview service selects an existing requester-Agent Student and calculates
   assert.equal(preview.phase3Plan.studentAction, 'reuse');
 });
 
+test('preview service warns when a matched existing Major omits the official degree label', async () => {
+  const service = createDefaultNotionPreviewService({
+    config,
+    client: makeClient({
+      data: {
+        [dataSourceIds.agents]: [titlePage('agent-1', NOTION_PROPERTY_NAMES.agents.name, 'Requester')],
+        [dataSourceIds.students]: [],
+        [dataSourceIds.universities]: [
+          titlePage('uni-1', NOTION_PROPERTY_NAMES.universities.name, 'Queen Mary')
+        ],
+        [dataSourceIds.majors]: [
+          majorPage('major-1', 'Corporate Finance', ['uni-1'])
+        ],
+        [dataSourceIds.workLog]: []
+      }
+    })
+  });
+
+  const preview = await service.preview({
+    clientMode: 'new',
+    requesterName: 'Requester',
+    studentName: 'Kim',
+    requestDateTime: '2026-07-24T11:23:00+09:00',
+    programmes: [{
+      universityName: 'Queen Mary',
+      programmeNameOriginal: 'Corporate Finance MSc'
+    }]
+  });
+
+  assert.equal(preview.programmes[0].major.status, 'matched');
+  assert.deepEqual(preview.programmes[0].degreeNameWarning, {
+    code: 'existing_major_degree_missing',
+    expectedDegreeLabel: 'MSc',
+    existingMajorName: 'Corporate Finance',
+    suggestedName: 'Corporate Finance MSc'
+  });
+  assert.deepEqual(preview.blockingIssues, []);
+});
+
 test('preview service does not calculate a work-log title for unresolved existing Student ambiguity', async () => {
   const service = createDefaultNotionPreviewService({
     config,

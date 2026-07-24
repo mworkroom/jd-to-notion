@@ -860,7 +860,12 @@ function renderProgrammePreview(programme) {
   card.append(
     paragraph(`검토된 원문: ${programme.officialProgrammeName || programme.major.requestedOriginalName}`),
     renderUniversityPreview(programme.university),
-    renderMajorPreview(programme.major, programme.index, programme.university)
+    renderMajorPreview(
+      programme.major,
+      programme.index,
+      programme.university,
+      programme.degreeNameWarning
+    )
   );
   return card;
 }
@@ -884,7 +889,7 @@ function renderUniversityPreview(university) {
   return section;
 }
 
-function renderMajorPreview(major, programmeIndex, university) {
+function renderMajorPreview(major, programmeIndex, university, degreeNameWarning) {
   const section = document.createElement('div');
   const heading = document.createElement('h4');
   const effectiveStatus = major.status === 'blocked' && university.status === 'missing'
@@ -895,6 +900,16 @@ function renderMajorPreview(major, programmeIndex, university) {
 
   if (major.selected) {
     section.append(paragraphWithLink('기존 학과 사용: ', major.selected));
+    if (degreeNameWarning) {
+      const warning = paragraph(
+        `학위명 누락 경고: 기존 학과명 “${degreeNameWarning.existingMajorName}”에는 `
+        + `원문의 학위명 ${degreeNameWarning.expectedDegreeLabel}가 없습니다. `
+        + '기존 항목은 수정하지 않고 그대로 사용합니다.'
+      );
+      warning.className = 'programme-review-note';
+      warning.setAttribute('role', 'status');
+      section.append(warning);
+    }
   } else if (effectiveStatus === 'missing') {
     const label = document.createElement('label');
     label.textContent = '새로 생성할 Notion 학과명';

@@ -1,5 +1,9 @@
 import { calculateWeekdayDeadline } from '../../shared/deadline.js';
-import { deriveProgrammeFields, normalizeWhitespace } from '../../shared/normalization.js';
+import {
+  deriveProgrammeFields,
+  normalizeWhitespace,
+  splitProgrammeName
+} from '../../shared/normalization.js';
 import {
   ADMISSIONS_CATEGORY,
   REQUEST_SEASON,
@@ -185,6 +189,11 @@ async function buildProgrammePreview({ repositories, programme, index }) {
       requestedOriginalName: programme.programmeNameOriginal,
       proposedCreateName: programme.notionMajorNameProposed
     });
+    const degreeNameWarning = getExistingMajorDegreeNameWarning({
+      officialProgrammeName: programme.programmeNameOriginal,
+      suggestedName: programme.notionMajorNameProposed,
+      major
+    });
 
     return {
       index,
@@ -192,7 +201,8 @@ async function buildProgrammePreview({ repositories, programme, index }) {
       major,
       officialProgrammeName: programme.programmeNameOriginal,
       programmeUrl: programme.programmeUrl,
-      needsMajorNameReview: programme.needsMajorNameReview
+      needsMajorNameReview: programme.needsMajorNameReview,
+      degreeNameWarning
     };
   } catch (error) {
     return {
@@ -217,9 +227,29 @@ async function buildProgrammePreview({ repositories, programme, index }) {
       },
       officialProgrammeName: programme.programmeNameOriginal,
       programmeUrl: programme.programmeUrl,
-      needsMajorNameReview: programme.needsMajorNameReview
+      needsMajorNameReview: programme.needsMajorNameReview,
+      degreeNameWarning: null
     };
   }
+}
+
+function getExistingMajorDegreeNameWarning({ officialProgrammeName, suggestedName, major }) {
+  if (major.status !== 'matched' || !major.selected?.name) {
+    return null;
+  }
+
+  const officialDegree = splitProgrammeName(officialProgrammeName).degreeLabel;
+  const existingDegree = splitProgrammeName(major.selected.name).degreeLabel;
+  if (!officialDegree || existingDegree) {
+    return null;
+  }
+
+  return {
+    code: 'existing_major_degree_missing',
+    expectedDegreeLabel: officialDegree,
+    existingMajorName: major.selected.name,
+    suggestedName
+  };
 }
 
 async function buildWorkLogPreview({ repositories, request, selectedStudentId }) {
