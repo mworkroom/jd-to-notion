@@ -3,7 +3,7 @@ import { mapNotionError } from '../errors.js';
 import { NOTION_PROPERTY_NAMES } from '../schema.js';
 import { queryDataSourcePages } from '../pagination.js';
 import { readPageUrl, readRelationPageIds, readSelectName, readTitleProperty } from '../pageValues.js';
-import { buildWorkLogProperties } from '../propertyBuilders.js';
+import { buildWorkLogProperties, titleProperty } from '../propertyBuilders.js';
 
 export function createWorkLogsRepository({ client, dataSourceId }) {
   return {
@@ -62,6 +62,29 @@ export function createWorkLogsRepository({ client, dataSourceId }) {
         };
       } catch (error) {
         throw mapNotionError(error, 'Work Log page could not be created.');
+      }
+    },
+
+    async ensureCreatedWorkLogTitle({ pageId, title }) {
+      try {
+        await client.pages.update({
+          page_id: pageId,
+          properties: {
+            [NOTION_PROPERTY_NAMES.workLog.title]: titleProperty(title)
+          }
+        });
+        const page = await client.pages.retrieve({ page_id: pageId });
+        const storedTitle = readTitleProperty(page, NOTION_PROPERTY_NAMES.workLog.title);
+        if (storedTitle !== title) {
+          throw new Error(`Work Log title verification failed for page ${pageId}.`);
+        }
+        return {
+          id: page.id,
+          title: storedTitle,
+          url: readPageUrl(page)
+        };
+      } catch (error) {
+        throw mapNotionError(error, 'Created Work Log title could not be finalized.');
       }
     }
   };

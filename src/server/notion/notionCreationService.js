@@ -357,6 +357,12 @@ async function executeCreation({
 
     const deadline = calculateWeekdayDeadline(request.requestDateTime);
     const knownWorkLogs = await repositories.workLogs.findAdmissionsLogsForStudent(student.id);
+    const journalWorkLogIds = new Set(
+      journalRecord.pages.workLogs.map((page) => page.id).filter(Boolean)
+    );
+    const plannedWorkLogs = knownWorkLogs.filter(
+      (workLog) => !journalWorkLogIds.has(workLog.id)
+    );
 
     for (const majorPlan of preflight.majors.values()) {
       step = `work_log:${majorPlan.key}`;
@@ -364,12 +370,14 @@ async function executeCreation({
       const previousPage = journalRecord.pages.workLogs.find(
         (page) => page.key === pageKey
       );
+      const title = getNextWorkLogTitle(plannedWorkLogs);
       let workLog;
 
       if (previousPage?.id) {
         const page = await repositories.workLogs.getById(previousPage.id);
         workLog = {
           ...page,
+          title,
           action: previousPage.action,
           majorId: majorIds.get(majorPlan.key),
           deadline,
@@ -377,7 +385,6 @@ async function executeCreation({
           requestSeason: REQUEST_SEASON
         };
       } else {
-        const title = getNextWorkLogTitle(knownWorkLogs);
         const page = await repositories.workLogs.createWorkLog({
           title,
           deadline,
@@ -402,13 +409,20 @@ async function executeCreation({
       }
 
       result.workLogs.push(workLog);
-      if (!knownWorkLogs.some((entry) => entry.id === workLog.id)) {
-        knownWorkLogs.push({
-          id: workLog.id,
-          title: workLog.title,
-          category: ADMISSIONS_CATEGORY
-        });
-      }
+      plannedWorkLogs.push({
+        id: workLog.id,
+        title: workLog.title,
+        category: ADMISSIONS_CATEGORY
+      });
+    }
+
+    step = 'work_log_titles';
+    for (const workLog of result.workLogs) {
+      const finalized = await repositories.workLogs.ensureCreatedWorkLogTitle({
+        pageId: workLog.id,
+        title: workLog.title
+      });
+      workLog.url = finalized.url;
     }
 
     await journal.complete(fingerprint);

@@ -78,7 +78,16 @@ test('creation service creates in Student-University-Major-Work Log order with f
     );
     assert.equal(workLogCreate.request.properties.Status, undefined);
   }
-  assert.equal(client.calls.some((call) => call.operation === 'update'), false);
+  const titleUpdates = client.calls.filter(
+    (call) => call.operation === 'update' && call.entity === 'workLog'
+  );
+  assert.equal(titleUpdates.length, 2);
+  for (const titleUpdate of titleUpdates) {
+    assert.deepEqual(
+      Object.keys(titleUpdate.request.properties),
+      [NOTION_PROPERTY_NAMES.workLog.title]
+    );
+  }
 
   const serializedResult = JSON.stringify(result);
   assert.doesNotMatch(serializedResult, /secret-token/);
@@ -320,6 +329,25 @@ function makeClient({
         data[dataSourceId] ??= [];
         data[dataSourceId].push(page);
         return page;
+      },
+      async update(request) {
+        for (const [dataSourceId, pages] of Object.entries(data)) {
+          const page = pages.find((candidate) => candidate.id === request.page_id);
+          if (!page) {
+            continue;
+          }
+          calls.push({
+            operation: 'update',
+            entity: entityByDataSource[dataSourceId],
+            request: structuredClone(request)
+          });
+          page.properties = {
+            ...page.properties,
+            ...structuredClone(request.properties)
+          };
+          return page;
+        }
+        throw Object.assign(new Error('not found'), { status: 404 });
       }
     }
   };

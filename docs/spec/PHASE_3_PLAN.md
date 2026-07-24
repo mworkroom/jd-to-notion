@@ -2,7 +2,7 @@
 
 - 작성일: 2026-07-24
 - 대상 프로젝트: Admission Guidelines Automation
-- 상태: Phase 3.1~3.2 로컬 구현 완료 · live Gate A 통과 · Gate B 대기
+- 상태: Phase 3.1~3.3 완료 · 양원재 B controlled live 생성 및 재검증 통과 · 일반 사용 활성화 대기
 - 선행 단계: Phase 1, Phase 2, Phase 2.5 완료
 
 ## 구현 진행 기록 — 2026-07-24
@@ -11,7 +11,7 @@
 - Phase 3.2의 property builder, create repository 함수, creation service, fingerprint, in-flight lock, 최소 journal, `POST /api/notion/create`를 구현했다.
 - 실제 endpoint는 `NOTION_CREATION_ENABLED=false`가 기본값이며 Gate B·C 승인 전에는 HTTP 403으로 차단된다.
 - fake Notion client로 Student → University → Major → 학과별 Work Log 순서, relation payload, Work Log 도중 부분 실패 복구, 중복 요청 차단을 검증했다.
-- 전체 자동 테스트는 81개가 통과한다.
+- 전체 자동 테스트는 83개가 통과한다.
 - Work Log 제목 접두사 `입학 요강`과 회사 표준 Category option `입학 요강`을 사용한다. Word 파일명의 `[2026입학요강]` 표기는 별도로 유지한다.
 - 수정된 코드의 live 읽기 전용 schema 검사에서 5개 data source 접근, property 이름·type, `Major` exact name, Category `입학 요강`, 요청 시즌 `2026/27` option이 모두 정상이다.
 - 사용자 live 시험은 수정 전 Category 값 때문에 Work Log 생성 단계에서 중단되었다. 로컬 journal이 없어 선행 page 생성 여부는 Notion에서 직접 확인해야 한다.
@@ -23,6 +23,16 @@
 - 따라서 이전의 “요청 하나당 Work Log 하나” 가정은 폐기하고 “학과 하나당 Work Log 하나”를 canonical 규칙으로 확정한다.
 - Notion data source의 표시명 `작업 일지`는 앱 설정의 data source ID와 무관하므로 변경하지 않는다. 코드 내부 명칭만 Work Log를 사용한다.
 - 공식 학과명에는 학위명이 있지만 매칭된 기존 Major 이름에는 학위명이 없으면 읽기 전용 경고를 표시한다. 기존 Major는 자동 수정하지 않으며 생성 차단 사유로도 사용하지 않는다.
+
+## Controlled live 결과 — 2026-07-25
+
+- 승인된 양원재 요청 한 건으로 `양원재 B` Student를 생성하고 최승미 Agent relation을 연결했다.
+- Queen Mary·KCL·Manchester University를 재사용하고, 기존 Corporate Finance 및 Real Estate Finance and Investment Major를 재사용했다.
+- `Strategic Entrepreneurship & Innovation MSc` Major를 새로 만들고 KCL relation을 연결했다.
+- `입학 요강 1`, `입학 요강 2`, `입학 요강 3` Work Log를 각각 생성했다. 모든 Work Log는 Student relation 1개와 Major relation 1개를 갖고, Category `입학 요강`, 마감일 `2026-07-28`, 요청 시즌 `2026/27`이 저장됐다.
+- Work Log DB의 시스템 사용자가 생성 직후 제목을 `입학 요강`으로 덮어쓰는 현상을 확인했다. 현재 요청에서 앱이 생성한 Work Log에 한정해 번호 제목을 다시 적용하고 실제 저장값을 검증하는 보완 로직을 추가했다.
+- 3초 뒤 재조회에서도 제목과 모든 relation·select·date 값이 유지되는 것을 확인했다.
+- 일반 사용 endpoint는 계속 `NOTION_CREATION_ENABLED=false`가 기본값이며, UI 생성 버튼도 아직 비활성화 상태다.
 
 ## 1. 현재 기준선
 
@@ -88,9 +98,11 @@ JANDI 추출
 Phase 3에서 허용하는 Notion 변경은 page 생성뿐이다.
 
 - create: 허용
-- update: 제외
+- update: 원칙적으로 제외
 - archive: 제외
 - delete: 제외
+
+예외적으로 Work Log DB의 시스템 동작이 새 page 제목을 `입학 요강`으로 덮어쓰므로, 앱이 현재 요청에서 생성한 Work Log의 제목을 `입학 요강 N`으로 다시 적용하고 저장 결과를 검증하는 title-only update를 허용한다. 기존 page나 다른 property는 수정하지 않는다.
 
 잘못 생성된 page를 앱이 자동 삭제하거나 원복하지 않는다.
 
@@ -597,7 +609,7 @@ Phase 3에서 하지 않는다.
 10. 동일 요청의 중복 제출이 차단된다.
 11. 부분 실패 시 이미 생성된 page와 실패 단계가 표시된다.
 12. 실제 쓰기 전 최종 확인이 필요하다.
-13. update·archive·delete 호출이 없다.
+13. 현재 요청에서 생성한 Work Log의 번호 제목 복구 외에는 update 호출이 없고 archive·delete 호출이 없다.
 14. Phase 1·2.5 기능에 회귀가 없다.
 
 ## 13. Phase 3 이후

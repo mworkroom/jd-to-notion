@@ -297,10 +297,34 @@ test('work log repository calculates the first title when no existing logs match
   assert.equal(await repository.getNextTitleForStudent('student-1'), `${WORK_LOG_TITLE_PREFIX} 1`);
 });
 
+test('work log repository finalizes only the title of a newly created Work Log', async () => {
+  const client = makeClient({
+    data: {
+      [dataSourceIds.workLog]: [
+        workLogPage('work-1', WORK_LOG_TITLE_PREFIX, ADMISSIONS_CATEGORY, ['student-1'])
+      ]
+    }
+  });
+  const repository = createWorkLogsRepository({ client, dataSourceId: dataSourceIds.workLog });
+
+  const result = await repository.ensureCreatedWorkLogTitle({
+    pageId: 'work-1',
+    title: `${WORK_LOG_TITLE_PREFIX} 1`
+  });
+
+  assert.equal(result.title, `${WORK_LOG_TITLE_PREFIX} 1`);
+  assert.equal(client.calls.updatePage.length, 1);
+  assert.deepEqual(
+    Object.keys(client.calls.updatePage[0].properties),
+    [NOTION_PROPERTY_NAMES.workLog.title]
+  );
+});
+
 function makeClient({ data = {}, pageSize = 100 } = {}) {
   const calls = {
     query: [],
-    retrievePage: []
+    retrievePage: [],
+    updatePage: []
   };
   const allPages = Object.values(data).flat();
 
@@ -328,6 +352,18 @@ function makeClient({ data = {}, pageSize = 100 } = {}) {
         if (!page) {
           throw Object.assign(new Error('not found'), { status: 404 });
         }
+        return page;
+      },
+      async update(request) {
+        calls.updatePage.push(structuredClone(request));
+        const page = allPages.find((candidate) => candidate.id === request.page_id);
+        if (!page) {
+          throw Object.assign(new Error('not found'), { status: 404 });
+        }
+        page.properties = {
+          ...page.properties,
+          ...structuredClone(request.properties)
+        };
         return page;
       }
     }
