@@ -1,5 +1,6 @@
 param(
   [switch]$NoBrowser,
+  [switch]$NoDialogs,
   [int]$Port = 3000
 )
 
@@ -12,25 +13,39 @@ $standardOutputLog = Join-Path $localStateDirectory 'app-server.log'
 $standardErrorLog = Join-Path $localStateDirectory 'app-server-error.log'
 
 function Get-LocalAppStatus {
+  $tcpClient = [System.Net.Sockets.TcpClient]::new()
+
+  try {
+    $connectTask = $tcpClient.ConnectAsync('127.0.0.1', $Port)
+
+    if (-not $connectTask.Wait(500) -or -not $tcpClient.Connected) {
+      return 'stopped'
+    }
+  } catch {
+    return 'stopped'
+  } finally {
+    $tcpClient.Dispose()
+  }
+
   try {
     $response = Invoke-WebRequest -UseBasicParsing -Uri $appUrl -TimeoutSec 2
-
     if ($response.StatusCode -eq 200 -and $response.Content.Contains($expectedTitle)) {
       return 'ready'
     }
 
     return 'occupied'
   } catch {
-    if ($_.Exception.Response) {
-      return 'occupied'
-    }
-
-    return 'stopped'
+    return 'occupied'
   }
 }
 
 function Show-LauncherError {
   param([string]$Message)
+
+  if ($NoDialogs) {
+    [Console]::Error.WriteLine($Message)
+    return
+  }
 
   Add-Type -AssemblyName System.Windows.Forms
   [System.Windows.Forms.MessageBox]::Show(
@@ -60,18 +75,27 @@ if ($initialStatus -eq 'occupied') {
 }
 
 try {
-  $npmCommand = Get-Command npm.cmd -ErrorAction Stop
+  $nodeCommand = Get-Command node.exe -ErrorAction Stop
 } catch {
-  Show-LauncherError 'Node.js/npm could not be found. Reinstall Node.js or add npm to PATH.'
+  Show-LauncherError 'Node.js could not be found. Reinstall Node.js or add it to PATH.'
   exit 1
 }
 
 New-Item -ItemType Directory -Path $localStateDirectory -Force | Out-Null
+$env:PORT = [string]$Port
+
+# Some terminal hosts expose both `Path` and `PATH`. Windows PowerShell's
+# Start-Process treats those names as duplicates, so keep the canonical entry.
+$processEnvironment = [Environment]::GetEnvironmentVariables()
+$pathKeys = @($processEnvironment.Keys | Where-Object { $_ -ieq 'Path' })
+if ($pathKeys -ccontains 'Path' -and $pathKeys -ccontains 'PATH') {
+  [Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
+}
 
 try {
   $serverProcess = Start-Process `
-    -FilePath $npmCommand.Source `
-    -ArgumentList @('start') `
+    -FilePath $nodeCommand.Source `
+    -ArgumentList @('src/server/server.js') `
     -WorkingDirectory $projectRoot `
     -WindowStyle Hidden `
     -RedirectStandardOutput $standardOutputLog `
@@ -103,4 +127,3 @@ for ($attempt = 0; $attempt -lt 40; $attempt += 1) {
 
 Show-LauncherError "Admission Helper did not start successfully.`n`nCheck:`n$standardErrorLog"
 exit 1
-
