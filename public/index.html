@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admissions Guideline Helper</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Local only · Phase 3 준비</p>
+          <h1>Admissions Guideline Helper</h1>
+        </div>
+        <p class="host-note">Server: 127.0.0.1</p>
+      </header>
+
+      <section class="section">
+        <div class="section-heading">
+          <span class="step">A</span>
+          <h2>JANDI Input</h2>
+        </div>
+        <textarea id="jandi-message" rows="14" placeholder="Paste one complete JANDI request message here"></textarea>
+        <p class="input-hint">AutoHotkey import shortcut: Ctrl + Alt + Shift + F12 starts import. The app uses Ctrl + Alt + Shift + F11 internally to focus this field.</p>
+        <div class="button-row">
+          <button id="analyze-button" type="button">Analyze</button>
+          <button id="clear-button" type="button" class="secondary">Clear</button>
+        </div>
+        <p id="analysis-status" class="status"></p>
+      </section>
+
+      <section id="review-section" class="section hidden">
+        <div class="section-heading">
+          <span class="step">B</span>
+          <h2>Extracted Request</h2>
+        </div>
+        <div class="form-grid">
+          <label>
+            Requester
+            <input id="requester-name" type="text">
+            <span class="field-error" data-error-for="requesterName"></span>
+          </label>
+          <label>
+            Request date/time
+            <input id="request-date-time" type="text">
+            <span class="field-error" data-error-for="requestDateTime"></span>
+          </label>
+          <label>
+            Student base name
+            <input id="student-name" type="text">
+            <span class="field-error" data-error-for="studentName"></span>
+          </label>
+        </div>
+
+        <div class="subsection-heading">
+          <h3>Programmes</h3>
+          <button id="add-programme-button" type="button" class="secondary compact">Add programme</button>
+        </div>
+        <div id="extraction-warnings" class="extraction-warnings hidden" role="status" aria-live="polite"></div>
+        <div id="programme-list" class="programme-list"></div>
+        <p class="field-error" data-error-for="programmes"></p>
+      </section>
+
+      <section id="student-mode-section" class="section hidden">
+        <div class="section-heading">
+          <span class="step">C</span>
+          <h2>학생 구분</h2>
+        </div>
+        <fieldset class="segmented">
+          <label>
+            <input type="radio" name="client-type" value="new" checked>
+            신규 고객
+          </label>
+          <label>
+            <input type="radio" name="client-type" value="existing">
+            기존 고객
+          </label>
+        </fieldset>
+        <p class="muted">학생 구분을 바꾸면 Notion 항목을 다시 조회해야 합니다.</p>
+      </section>
+
+      <section id="notion-preview-section" class="section hidden">
+        <div class="section-heading">
+          <span class="step">D</span>
+          <h2>Notion 생성 미리보기</h2>
+        </div>
+        <div class="notion-status-row">
+          <p>연결 상태: <strong id="notion-status">확인 전</strong></p>
+          <button id="check-notion-button" type="button" class="secondary compact">연결 및 스키마 확인</button>
+        </div>
+        <div class="button-row">
+          <button id="preview-notion-button" type="button">Notion 항목 다시 조회</button>
+        </div>
+        <p id="notion-preview-status" class="status"></p>
+        <div id="notion-plan-summary" class="notion-plan-summary hidden" role="status" aria-live="polite"></div>
+        <div id="notion-preview" class="preview-list"></div>
+        <section id="creation-plan" class="creation-plan hidden" aria-labelledby="creation-plan-title">
+          <div class="creation-plan-heading">
+            <div>
+              <p class="eyebrow">최종 확인</p>
+              <h3 id="creation-plan-title">Notion 생성 계획</h3>
+            </div>
+            <span id="creation-readiness" class="readiness-badge">준비 확인 중</span>
+          </div>
+          <div id="creation-plan-details" class="creation-plan-details"></div>
+          <p id="creation-gate-note" class="creation-gate-note">
+            현재는 안전한 fake-client 검증 단계입니다. 실제 Notion 쓰기는 live 1건 승인 전까지 서버에서도 차단됩니다.
+          </p>
+        </section>
+        <div class="button-row">
+          <button id="create-notion-button" type="button" disabled>Notion에 기록 생성</button>
+        </div>
+      </section>
+
+      <section id="output-section" class="section hidden">
+        <div class="section-heading">
+          <span class="step">E</span>
+          <h2>Final Output</h2>
+        </div>
+        <div class="output-grid">
+          <label>
+            작업 일지 제목
+            <input id="work-log-title" type="text" readonly>
+          </label>
+          <label>
+            Deadline
+            <input id="deadline" type="text" readonly>
+          </label>
+          <label>
+            Category
+            <input id="category" type="text" readonly>
+          </label>
+          <label>
+            Request season
+            <input id="request-season" type="text" readonly>
+          </label>
+          <label>
+            Programme Label
+            <input id="programme-label" type="text" readonly>
+          </label>
+          <label class="wide">
+            Final Word file name
+            <input id="word-filename" type="text">
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="copy-filename-button" type="button">Copy file name</button>
+        </div>
+        <p id="copy-status" class="status"></p>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

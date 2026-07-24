@@ -1,0 +1,52 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.pnpm-store/
+.vscode/
+.idea/
+*.code-workspace
+dist/
+coverage/
+*.log
+.local/
+.DS_Store
+Thumbs.db
+README.md
+ROADMAP.md
+
+# Local Codex / agent workspace metadata
+.agents/
+.codex/
+
+
+# Local backups and archives
+backup/
+backups/
+*.bak
+*.tmp
+*.zip
+*.7z
+*.rar
+
+# Local run outputs / generated artifacts
+out/
+output/
+exports/
+downloads/
+*.docx
+*.pdf
+
+# Personal notes / local-only references
+docs/ideas/
+docs/project specs/
+docs/private/
+docs/local/
+
+# Local source assets / temporary data
+*.psd
+*.csv
+!data/universityAliases.csv
+
+
+# Keep example CSVs only if intentionally needed
