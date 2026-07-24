@@ -107,12 +107,17 @@ test('/api/notion/work-log-title calculates the selected Student title', async (
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/notion/work-log-title`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selectedStudentId: 'student-1' })
+      body: JSON.stringify({ selectedStudentId: 'student-1', workLogCount: 3 })
     });
     const payload = await response.json();
 
     assert.equal(response.status, 200);
     assert.equal(payload.workLog.title, `${WORK_LOG_TITLE_PREFIX} 2`);
+    assert.deepEqual(payload.workLog.titles, [
+      `${WORK_LOG_TITLE_PREFIX} 2`,
+      `${WORK_LOG_TITLE_PREFIX} 3`,
+      `${WORK_LOG_TITLE_PREFIX} 4`
+    ]);
   } finally {
     await close(server);
   }

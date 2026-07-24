@@ -153,7 +153,8 @@ async function handleNotionWorkLogTitle(request, response, options) {
       config: options.notionConfig
     });
     const result = await service.getWorkLogTitleForStudent(
-      payload.selectedStudentId ?? payload.studentId
+      payload.selectedStudentId ?? payload.studentId,
+      payload.workLogCount
     );
     sendJson(response, 200, result);
   } catch (error) {

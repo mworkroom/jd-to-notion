@@ -1,7 +1,7 @@
 import { splitProgrammeName } from './normalization.js';
-import { WORK_LOG_TITLE_PREFIX } from './workLog.js';
 
 const WORD_EXTENSION = '.docx';
+const WORD_FILENAME_CATEGORY = '입학요강';
 const INVALID_WINDOWS_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
 const MIN_SHARED_PHRASE_WORDS = 2;
 
@@ -41,7 +41,7 @@ export function generateWordFilename({
   studentName,
   programmeNames,
   year = '2026',
-  category = WORK_LOG_TITLE_PREFIX
+  category = WORD_FILENAME_CATEGORY
 }) {
   const cleanStudentName = String(studentName ?? '').trim();
   const label = sanitizeFilenamePart(generateProgrammeLabel(programmeNames));

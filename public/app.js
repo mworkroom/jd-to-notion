@@ -1,7 +1,7 @@
 ﻿import { calculateWeekdayDeadline } from '/shared/deadline.js';
 import { generateProgrammeLabel, generateWordFilename } from '/shared/filename.js';
 import { deriveProgrammeFields } from '/shared/normalization.js';
-import { ADMISSIONS_CATEGORY, REQUEST_SEASON, getNextWorkLogTitle } from '/shared/workLog.js';
+import { ADMISSIONS_CATEGORY, REQUEST_SEASON, getNextWorkLogTitles } from '/shared/workLog.js';
 
 const emptyRequest = {
   requesterName: '',
@@ -356,7 +356,9 @@ function renderDerivedOutput() {
   const programmeNames = requestState.programmes.map((programme) => programme.programmeNameOriginal);
   const programmeLabel = generateProgrammeLabel(programmeNames);
 
-  elements.workLogTitle.value = notionPreviewState?.workLog?.title ?? getNextWorkLogTitle([]);
+  const workLogTitles = notionPreviewState?.workLog?.titles
+    ?? getNextWorkLogTitles([], countUniqueRequestProgrammes());
+  elements.workLogTitle.value = formatWorkLogTitles(workLogTitles);
   elements.deadline.value = calculateWeekdayDeadline(requestState.requestDateTime);
   elements.category.value = ADMISSIONS_CATEGORY;
   elements.requestSeason.value = REQUEST_SEASON;
@@ -556,6 +558,7 @@ async function updateWorkLogTitleForSelection(studentId) {
     studentId
   };
   notionPreviewState.workLog.title = '선택한 학생의 작업 일지 순번 확인 중...';
+  notionPreviewState.workLog.titles = [notionPreviewState.workLog.title];
   renderDerivedOutput();
 
   try {
@@ -564,13 +567,17 @@ async function updateWorkLogTitleForSelection(studentId) {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ selectedStudentId: studentId })
+      body: JSON.stringify({
+        selectedStudentId: studentId,
+        workLogCount: countUniqueRequestProgrammes()
+      })
     });
     const payload = await response.json();
 
     if (!response.ok) {
       elements.notionPreviewStatus.textContent = payload?.error?.message ?? '작업 일지 순번을 확인하지 못했습니다.';
       notionPreviewState.workLog.title = '기존 학생 선택 필요';
+      notionPreviewState.workLog.titles = [notionPreviewState.workLog.title];
       renderDerivedOutput();
       return;
     }
@@ -583,6 +590,7 @@ async function updateWorkLogTitleForSelection(studentId) {
     renderDerivedOutput();
   } catch (error) {
     notionPreviewState.workLog.title = '기존 학생 선택 필요';
+    notionPreviewState.workLog.titles = [notionPreviewState.workLog.title];
     elements.notionPreviewStatus.textContent = `작업 일지 순번 확인 실패: ${error.message}`;
     renderDerivedOutput();
   }
@@ -633,7 +641,7 @@ function renderCreationPlan() {
     `학생 ${statistics.studentCreates ? '새로 생성' : '기존 항목 사용'}`,
     `대학 ${statistics.universityCreates}개 생성`,
     `학과 ${statistics.majorCreates}개 생성`,
-    '작업 일지 1개 생성'
+    `작업 일지 ${statistics.workLogCreates}개 생성`
   ].join(' · ');
   elements.notionPlanSummary.classList.remove('hidden');
 
@@ -641,7 +649,7 @@ function renderCreationPlan() {
     <dl class="plan-facts">
       <div><dt>최종 학생명</dt><dd>${escapeHtml(finalStudentName || '확인 필요')}</dd></div>
       <div><dt>마감일</dt><dd>${escapeHtml(notionPreviewState.workLog?.deadline || '확인 필요')}</dd></div>
-      <div><dt>작업 일지 제목</dt><dd>${escapeHtml(notionPreviewState.workLog?.title || '확인 필요')}</dd></div>
+      <div><dt>작업 일지 제목</dt><dd>${escapeHtml(formatWorkLogTitles(notionPreviewState.workLog?.titles) || '확인 필요')}</dd></div>
       <div><dt>새로 생성</dt><dd>${statistics.totalCreates}개</dd></div>
       <div><dt>기존 항목 사용</dt><dd>${statistics.totalReuses}개</dd></div>
     </dl>
@@ -687,7 +695,8 @@ function getCreationStatistics() {
   const studentCreates = notionPreviewState.student.mode === 'new' ? 1 : 0;
   const universityCreates = universities.filter((item) => item.action === 'create').length;
   const majorCreates = majors.filter((item) => item.action === 'create').length;
-  const totalCreates = studentCreates + universityCreates + majorCreates + 1;
+  const workLogCreates = majors.length;
+  const totalCreates = studentCreates + universityCreates + majorCreates + workLogCreates;
   const totalReuses = 1
     + (studentCreates ? 0 : 1)
     + universities.filter((item) => item.action === 'reuse').length
@@ -697,6 +706,7 @@ function getCreationStatistics() {
     studentCreates,
     universityCreates,
     majorCreates,
+    workLogCreates,
     totalCreates,
     totalReuses
   };
@@ -917,12 +927,25 @@ function renderMajorPreview(major, programmeIndex, university) {
 function renderWorkLogPreview(workLog) {
   const card = createPreviewCard('작업 일지');
   card.append(
-    paragraph(`제목: ${workLog.title}`),
+    paragraph(`생성 개수: ${workLog.count}개 (학과별 1개)`),
+    paragraph(`제목: ${formatWorkLogTitles(workLog.titles)}`),
     paragraph(`마감일: ${workLog.deadline}`),
     paragraph(`Category: ${workLog.category}`),
     paragraph(`요청 시즌: ${workLog.requestSeason}`)
   );
   return card;
+}
+
+function countUniqueRequestProgrammes() {
+  const keys = requestState.programmes.map((programme) => [
+    String(programme.universityName ?? '').trim().toLowerCase(),
+    String(programme.majorSearchKey ?? '').trim().toLowerCase()
+  ].join('|'));
+  return Math.max(1, new Set(keys.filter((key) => key !== '|')).size);
+}
+
+function formatWorkLogTitles(titles = []) {
+  return Array.isArray(titles) ? titles.filter(Boolean).join(' · ') : '';
 }
 
 function bindPreviewInteractions() {

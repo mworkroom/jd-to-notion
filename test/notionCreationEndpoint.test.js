@@ -42,11 +42,11 @@ test('/api/notion/create returns only the creation service safe result when expl
           student: { id: 'student-1', action: 'create' },
           universities: [],
           majors: [],
-          workLog: {
-            id: 'work-1',
-            url: 'https://notion.test/work-1',
-            action: 'create'
-          },
+          workLogs: [{
+              id: 'work-1',
+              url: 'https://notion.test/work-1',
+              action: 'create'
+          }],
           finalStudentName: 'Kim'
         };
       }
@@ -64,7 +64,7 @@ test('/api/notion/create returns only the creation service safe result when expl
 
     assert.equal(response.status, 201);
     assert.equal(payload.ok, true);
-    assert.equal(payload.workLog.url, 'https://notion.test/work-1');
+    assert.equal(payload.workLogs[0].url, 'https://notion.test/work-1');
     assert.doesNotMatch(JSON.stringify(payload), /token|properties|raw/i);
   } finally {
     await close(server);

@@ -168,9 +168,11 @@ AI/mock extraction 결과는 확정값이 아니다. review form에서 수정하
 
 Phase 2에서 실제 Notion 매칭 결과를 먼저 확인한다. Phase 3에서만 create 작업을 별도로 설계한다.
 
-### One request, one Work Log
+### One Major, one Work Log
 
-여러 학과가 한 JANDI 요청에 포함되어도 Work Log는 요청 단위로 하나다. 여러 University/Major relation을 하나의 Work Log에 연결하는 방향이다.
+> 2026-07-25 정정: 아래 규칙은 live Work Log 193개를 읽기 전용으로 확인한 결과에 따라 확정했다.
+
+여러 학과가 한 JANDI 요청에 포함되면 학과마다 Work Log를 하나씩 만든다. 각 Work Log는 Student relation 한 개와 Major relation 한 개만 연결하며, 제목은 학생 기준 `입학 요강 N` 순번을 이어간다.
 
 ### Preserve raw names
 

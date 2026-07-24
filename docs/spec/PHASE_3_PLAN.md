@@ -10,11 +10,18 @@
 - Phase 3.1의 한국어 생성 계획 UI, preview 무효화, 생성 조건 요약을 구현했다.
 - Phase 3.2의 property builder, create repository 함수, creation service, fingerprint, in-flight lock, 최소 journal, `POST /api/notion/create`를 구현했다.
 - 실제 endpoint는 `NOTION_CREATION_ENABLED=false`가 기본값이며 Gate B·C 승인 전에는 HTTP 403으로 차단된다.
-- fake Notion client로 Student → University → Major → Work Log 순서, relation payload, 부분 실패 복구, 중복 요청 차단을 검증했다.
-- 전체 자동 테스트는 80개가 통과한다.
-- Work Log 제목 접두사 `입학요강`과 회사 표준 Category option `입학 요강`을 별도 상수로 분리했다.
+- fake Notion client로 Student → University → Major → 학과별 Work Log 순서, relation payload, Work Log 도중 부분 실패 복구, 중복 요청 차단을 검증했다.
+- 전체 자동 테스트는 81개가 통과한다.
+- Work Log 제목 접두사 `입학 요강`과 회사 표준 Category option `입학 요강`을 사용한다. Word 파일명의 `[2026입학요강]` 표기는 별도로 유지한다.
 - 수정된 코드의 live 읽기 전용 schema 검사에서 5개 data source 접근, property 이름·type, `Major` exact name, Category `입학 요강`, 요청 시즌 `2026/27` option이 모두 정상이다.
 - 사용자 live 시험은 수정 전 Category 값 때문에 Work Log 생성 단계에서 중단되었다. 로컬 journal이 없어 선행 page 생성 여부는 Notion에서 직접 확인해야 한다.
+
+## 구조 검증 및 계획 정정 — 2026-07-25
+
+- live Work Log를 읽기 전용으로 조사한 결과, 입학 요강 Category의 기존 page 193개가 모두 `Students` relation 1개와 `Major` relation 1개를 갖고 있었다.
+- 같은 학생의 복수 학과 요청은 `입학 요강 1`, `입학 요강 2`, `입학 요강 3`처럼 학과별 Work Log page로 분리되어 있었다.
+- 따라서 이전의 “요청 하나당 Work Log 하나” 가정은 폐기하고 “학과 하나당 Work Log 하나”를 canonical 규칙으로 확정한다.
+- Notion data source의 표시명 `작업 일지`는 앱 설정의 data source ID와 무관하므로 변경하지 않는다. 코드 내부 명칭만 Work Log를 사용한다.
 
 ## 1. 현재 기준선
 
@@ -41,8 +48,8 @@ Phase 3 작업 중에도 Phase 1·2.5의 추출 및 파일명 생성 기능은 N
 2. 신규 고객이면 Student를 만들고 Agent relation을 연결한다.
 3. 없는 University만 생성한다.
 4. 없는 Major만 생성하고 University relation을 연결한다.
-5. 요청 하나당 Work Log 하나를 생성한다.
-6. Work Log에 최종 Student와 모든 Major를 연결한다.
+5. 요청에 포함된 최종 Major마다 Work Log 하나를 생성한다.
+6. 각 Work Log에 최종 Student 한 명과 해당 Major 하나만 연결한다.
 7. 생성·재사용된 항목과 실패 지점을 사용자에게 명확히 보여준다.
 
 ## 3. 핵심 원칙
@@ -138,16 +145,18 @@ University page ID + normalized Major key
 
 ### 4.4 Work Log
 
-JANDI 요청 하나당 Work Log 하나를 생성한다.
+JANDI 요청에 포함된 고유 Major마다 Work Log 하나를 생성한다.
 
 | Property | 값 |
 |---|---|
-| `작업 내용` | 선택된 Student 기준 다음 `입학요강 N` |
+| `작업 내용` | 선택된 Student 기준 다음 `입학 요강 N` |
 | `마감일` | 요청일 기준 주말을 제외한 2영업일 뒤 |
 | `Category` | `입학 요강` |
 | `요청 시즌` | `2026/27` |
 | `Students` | 최종 Student page ID |
-| `Major` | 요청에 포함된 모든 최종 Major page ID |
+| `Major` | 해당 Work Log가 담당하는 최종 Major page ID 한 개 |
+
+예를 들어 기존 입학 요강 작업일지가 없는 학생에게 학과 3개를 연결하면 `입학 요강 1`, `입학 요강 2`, `입학 요강 3`을 각각 생성한다. 기존 작업일지가 2개라면 3번부터 이어서 생성한다.
 
 다음 속성은 직접 쓰지 않는다.
 
@@ -203,9 +212,9 @@ Notion에는 여러 data source를 묶는 transaction이 없으므로 순서를 
 
 ### 5.5 Work Log 생성
 
-Student와 모든 Major ID가 확보된 뒤 마지막으로 생성한다.
+Student와 모든 Major ID가 확보된 뒤, 각 Major마다 Work Log를 하나씩 마지막 단계에서 생성한다.
 
-Work Log 순번은 생성 직전에 다시 계산한다. Preview 시점의 순번을 그대로 신뢰하지 않는다.
+Work Log 순번은 생성 직전에 다시 계산하고, 같은 요청 안에서는 생성할 때마다 다음 번호로 진행한다. Preview 시점의 순번을 그대로 신뢰하지 않는다.
 
 ## 6. 중복 방지와 부분 실패
 
@@ -337,7 +346,7 @@ Notion의 실제 property 이름을 설명해야 할 때만 영문을 병기한�
 Notion 영역 상단에 다음을 한 줄로 요약한다.
 
 ```text
-담당자 기존 사용 · 학생 새로 생성 · 대학 1개 생성 · 학과 2개 생성 · 작업 일지 1개 생성
+담당자 기존 사용 · 학생 새로 생성 · 대학 1개 생성 · 학과 2개 생성 · 작업 일지 2개 생성
 ```
 
 정상적으로 재사용되는 상세 정보는 접고, 선택이나 검토가 필요한 항목만 펼쳐서 보여준다.
@@ -348,7 +357,7 @@ Notion 영역 상단에 다음을 한 줄로 요약한다.
 
 - 최종 학생명
 - 마감일
-- 작업 일지 제목
+- 생성할 작업 일지 제목 전체
 - 새로 생성할 Student·University·Major 수
 - 재사용할 항목 수
 - 연결될 모든 학과
@@ -501,7 +510,9 @@ J님이 직접 고른 안전한 실제 요청 한 건만 사용한다.
 
 - 신규 고객과 기존 고객 각각 검증
 - create와 reuse가 섞인 요청 검증
-- 여러 학과가 있는 요청에서 Work Log 하나만 생성
+- 여러 학과가 있는 요청에서 학과 수만큼 Work Log를 생성
+- 각 Work Log의 Student·Major relation이 정확히 하나씩인지 확인
+- 두 번째 이후 Work Log 생성 실패 후 재시도해도 앞선 Work Log가 중복되지 않음
 - 빠른 이중 클릭과 동일 요청 재전송 차단
 - Phase 1 추출과 파일명 기능 회귀 없음
 
@@ -579,8 +590,8 @@ Phase 3에서 하지 않는다.
 4. Agent를 자동 생성하지 않는다.
 5. 없는 University·Major만 생성한다.
 6. 모든 Major가 올바른 University relation을 갖는다.
-7. 요청 하나당 Work Log 하나만 생성한다.
-8. Work Log가 최종 Student와 모든 Major에 연결된다.
+7. 고유 Major 하나당 Work Log 하나만 생성한다.
+8. 각 Work Log가 최종 Student 한 명과 해당 Major 한 개에 연결된다.
 9. 제목, 마감일, Category, 요청 시즌이 정확하다.
 10. 동일 요청의 중복 제출이 차단된다.
 11. 부분 실패 시 이미 생성된 page와 실패 단계가 표시된다.

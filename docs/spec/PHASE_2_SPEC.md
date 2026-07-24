@@ -187,7 +187,7 @@ Known properties:
 Phase 3 write values will eventually be:
 
 ```text
-작업내용 = 입학요강 N
+작업내용 = 입학 요강 N
 마감일 = request date + 2 weekdays
 Students = selected or newly created Student page
 Major = matched or newly created Major pages
@@ -1172,7 +1172,7 @@ Phase 2 is complete when:
 8. Majors are matched by normalized subject plus University relation.
 9. Degree position does not break Major matching.
 10. Missing Majors show the correct proposed trailing-degree title.
-11. Existing Student selection produces the correct next `입학요강 N` title.
+11. Existing Student selection produces the correct next `입학 요강 N` title.
 12. No Notion record is created, modified, archived, or deleted.
 13. The disabled Phase 3 creation button remains disabled.
 14. All existing and new automated tests pass.

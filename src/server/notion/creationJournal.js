@@ -44,13 +44,15 @@ function createJournal({ loadRecords, saveRecords, now }) {
   return {
     async get(fingerprint) {
       const records = await loadRecords();
-      return records.find((record) => record.fingerprint === fingerprint) ?? null;
+      const record = records.find((item) => item.fingerprint === fingerprint) ?? null;
+      return record ? structuredClone(normalizeRecord(record)) : null;
     },
 
     async begin(fingerprint) {
       const records = await loadRecords();
       const existing = records.find((record) => record.fingerprint === fingerprint);
       if (existing) {
+        normalizeRecord(existing);
         existing.status = 'in_progress';
         existing.failedStep = null;
         existing.errorCode = null;
@@ -69,7 +71,7 @@ function createJournal({ loadRecords, saveRecords, now }) {
           student: null,
           universities: [],
           majors: [],
-          workLog: null
+          workLogs: []
         }
       };
       records.push(record);
@@ -82,9 +84,11 @@ function createJournal({ loadRecords, saveRecords, now }) {
       const record = requireRecord(records, fingerprint);
       const safePage = sanitizeJournalPage(page);
 
-      if (entity === 'student' || entity === 'workLog') {
+      normalizeRecord(record);
+
+      if (entity === 'student') {
         record.pages[entity] = safePage;
-      } else if (entity === 'universities' || entity === 'majors') {
+      } else if (entity === 'universities' || entity === 'majors' || entity === 'workLogs') {
         const index = record.pages[entity].findIndex((item) => item.key === safePage.key);
         if (index >= 0) {
           record.pages[entity][index] = safePage;
@@ -136,4 +140,21 @@ function sanitizeJournalPage(page = {}) {
     id: String(page.id ?? ''),
     action: page.action === 'reuse' ? 'reuse' : 'create'
   };
+}
+
+function normalizeRecord(record) {
+  record.pages ??= {};
+  record.pages.student ??= null;
+  record.pages.universities ??= [];
+  record.pages.majors ??= [];
+  record.pages.workLogs ??= [];
+
+  if (record.pages.workLog?.id && record.pages.workLogs.length === 0) {
+    record.pages.workLogs.push({
+      ...record.pages.workLog,
+      key: record.pages.workLog.key || 'work_log:legacy'
+    });
+  }
+  delete record.pages.workLog;
+  return record;
 }

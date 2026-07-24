@@ -13,7 +13,7 @@ export function createWorkLogsRepository({ client, dataSourceId }) {
         .map(toWorkLogSummary)
         .filter((entry) => entry.studentIds.includes(studentId))
         .filter((entry) => entry.category === ADMISSIONS_CATEGORY)
-        .map(({ title, category }) => ({ title, category }));
+        .map(({ id, title, category }) => ({ id, title, category }));
     },
 
     async getNextTitleForStudent(studentId) {
@@ -40,7 +40,7 @@ export function createWorkLogsRepository({ client, dataSourceId }) {
       category,
       requestSeason,
       studentId,
-      majorIds
+      majorId
     }) {
       try {
         const page = await client.pages.create({
@@ -51,7 +51,7 @@ export function createWorkLogsRepository({ client, dataSourceId }) {
             category,
             requestSeason,
             studentId,
-            majorIds
+            majorId
           })
         });
 
@@ -95,6 +95,7 @@ async function queryWorkLogsForStudent(client, dataSourceId, studentId) {
 
 function toWorkLogSummary(page) {
   return {
+    id: page.id,
     title: readTitleProperty(page, NOTION_PROPERTY_NAMES.workLog.title),
     category: readSelectName(page, NOTION_PROPERTY_NAMES.workLog.category),
     studentIds: readRelationPageIds(page, NOTION_PROPERTY_NAMES.workLog.students)

@@ -50,28 +50,34 @@ test('creation service creates in Student-University-Major-Work Log order with f
   assert.equal(result.finalStudentName, 'Kim');
   assert.deepEqual(
     client.calls.filter((call) => call.operation === 'create').map((call) => call.entity),
-    ['students', 'universities', 'majors', 'majors', 'workLog']
+    ['students', 'universities', 'majors', 'majors', 'workLog', 'workLog']
   );
   assert.equal(result.universities.filter((item) => item.action === 'create').length, 1);
   assert.equal(result.majors.length, 2);
   assert.notEqual(result.majors[0].universityId, result.majors[1].universityId);
-  assert.equal(result.workLog.title, `${WORK_LOG_TITLE_PREFIX} 1`);
-  assert.equal(result.workLog.deadline, '2026-07-28');
-  assert.equal(result.workLog.category, ADMISSIONS_CATEGORY);
-  assert.equal(result.workLog.requestSeason, '2026/27');
+  assert.deepEqual(
+    result.workLogs.map((workLog) => workLog.title),
+    [`${WORK_LOG_TITLE_PREFIX} 1`, `${WORK_LOG_TITLE_PREFIX} 2`]
+  );
+  assert.equal(result.workLogs[0].deadline, '2026-07-28');
+  assert.equal(result.workLogs[0].category, ADMISSIONS_CATEGORY);
+  assert.equal(result.workLogs[0].requestSeason, '2026/27');
 
-  const workLogCreate = client.calls.find(
+  const workLogCreates = client.calls.filter(
     (call) => call.operation === 'create' && call.entity === 'workLog'
   );
-  assert.deepEqual(
-    workLogCreate.request.properties[NOTION_PROPERTY_NAMES.workLog.students].relation,
-    [{ id: result.student.id }]
-  );
-  assert.deepEqual(
-    workLogCreate.request.properties[NOTION_PROPERTY_NAMES.workLog.major].relation,
-    result.majors.map((major) => ({ id: major.id }))
-  );
-  assert.equal(workLogCreate.request.properties.Status, undefined);
+  assert.equal(workLogCreates.length, 2);
+  for (const [index, workLogCreate] of workLogCreates.entries()) {
+    assert.deepEqual(
+      workLogCreate.request.properties[NOTION_PROPERTY_NAMES.workLog.students].relation,
+      [{ id: result.student.id }]
+    );
+    assert.deepEqual(
+      workLogCreate.request.properties[NOTION_PROPERTY_NAMES.workLog.major].relation,
+      [{ id: result.majors[index].id }]
+    );
+    assert.equal(workLogCreate.request.properties.Status, undefined);
+  }
   assert.equal(client.calls.some((call) => call.operation === 'update'), false);
 
   const serializedResult = JSON.stringify(result);
@@ -91,7 +97,7 @@ test('creation service creates in Student-University-Major-Work Log order with f
   );
   assert.equal(
     client.calls.filter((call) => call.operation === 'create').length,
-    5
+    6
   );
 });
 
@@ -133,8 +139,53 @@ test('creation service recovers from journal IDs without duplicating earlier pag
   assert.equal(creates.filter((call) => call.entity === 'students').length, 1);
   assert.equal(creates.filter((call) => call.entity === 'universities').length, 1);
   assert.equal(creates.filter((call) => call.entity === 'majors').length, 3);
-  assert.equal(creates.filter((call) => call.entity === 'workLog').length, 1);
-  assert.equal(recovered.workLog.title, `${WORK_LOG_TITLE_PREFIX} 1`);
+  assert.equal(creates.filter((call) => call.entity === 'workLog').length, 2);
+  assert.deepEqual(
+    recovered.workLogs.map((workLog) => workLog.title),
+    [`${WORK_LOG_TITLE_PREFIX} 1`, `${WORK_LOG_TITLE_PREFIX} 2`]
+  );
+});
+
+test('creation service resumes after a later Work Log failure without duplicating the first Work Log', async () => {
+  const client = makeClient({
+    failOnceOnCreateOccurrence: { entity: 'workLog', occurrence: 2 },
+    data: {
+      [dataSourceIds.agents]: [titlePage('agent-1', NOTION_PROPERTY_NAMES.agents.name, 'Requester')],
+      [dataSourceIds.students]: [],
+      [dataSourceIds.universities]: [
+        titlePage('uni-warwick', NOTION_PROPERTY_NAMES.universities.name, 'Warwick')
+      ],
+      [dataSourceIds.majors]: [],
+      [dataSourceIds.workLog]: []
+    }
+  });
+  const journal = createMemoryCreationJournal();
+  const service = createDefaultNotionCreationService({ config, client, journal });
+
+  await assert.rejects(
+    () => service.create(makeNewClientRequest()),
+    (error) => {
+      assert.equal(error.code, 'NOTION_CREATE_PARTIAL_FAILURE');
+      assert.match(error.details.failedStep, /^work_log:/);
+      assert.deepEqual(
+        error.details.partialResult.workLogs.map((workLog) => workLog.title),
+        [`${WORK_LOG_TITLE_PREFIX} 1`]
+      );
+      return true;
+    }
+  );
+
+  const recovered = await service.create(makeNewClientRequest());
+
+  assert.deepEqual(
+    recovered.workLogs.map((workLog) => workLog.title),
+    [`${WORK_LOG_TITLE_PREFIX} 1`, `${WORK_LOG_TITLE_PREFIX} 2`]
+  );
+  assert.equal(client.data[dataSourceIds.workLog].length, 2);
+  assert.equal(
+    client.calls.filter((call) => call.operation === 'create' && call.entity === 'workLog').length,
+    3
+  );
 });
 
 test('creation service blocks unresolved Agent, Student, and unconfirmed Major before writes', async () => {
@@ -197,10 +248,15 @@ function makeNewClientRequest() {
   };
 }
 
-function makeClient({ data = {}, failOnceOnCreate = null } = {}) {
+function makeClient({
+  data = {},
+  failOnceOnCreate = null,
+  failOnceOnCreateOccurrence = null
+} = {}) {
   const calls = [];
   let nextPageId = 1;
   let remainingFailure = failOnceOnCreate;
+  const createCounts = new Map();
   const schemas = Object.fromEntries(
     NOTION_DATA_SOURCE_KEYS.map((key) => [
       dataSourceIds[key],
@@ -246,9 +302,13 @@ function makeClient({ data = {}, failOnceOnCreate = null } = {}) {
           entity,
           request: structuredClone(request)
         });
+        createCounts.set(entity, (createCounts.get(entity) ?? 0) + 1);
 
-        if (remainingFailure === entity) {
+        const occurrenceFailure = failOnceOnCreateOccurrence?.entity === entity
+          && failOnceOnCreateOccurrence.occurrence === createCounts.get(entity);
+        if (remainingFailure === entity || occurrenceFailure) {
           remainingFailure = null;
+          failOnceOnCreateOccurrence = null;
           throw Object.assign(new Error('controlled failure'), { status: 500 });
         }
 

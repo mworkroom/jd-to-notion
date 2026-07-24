@@ -6,7 +6,11 @@ import {
   normalizeForComparison,
   normalizeWhitespace
 } from '../../shared/normalization.js';
-import { ADMISSIONS_CATEGORY, REQUEST_SEASON } from '../../shared/workLog.js';
+import {
+  ADMISSIONS_CATEGORY,
+  REQUEST_SEASON,
+  getNextWorkLogTitle
+} from '../../shared/workLog.js';
 import { createNotionClient } from './client.js';
 import { createFileCreationJournal } from './creationJournal.js';
 import { NotionAppError, mapNotionError } from './errors.js';
@@ -288,7 +292,7 @@ async function executeCreation({
     student: null,
     universities: [],
     majors: [],
-    workLog: null,
+    workLogs: [],
     finalStudentName: null
   };
   let step = 'student';
@@ -351,38 +355,60 @@ async function executeCreation({
       });
     }
 
-    step = 'work_log';
-    if (journalRecord.pages.workLog?.id) {
-      const page = await repositories.workLogs.getById(journalRecord.pages.workLog.id);
-      result.workLog = {
-        ...page,
-        action: journalRecord.pages.workLog.action
-      };
-    } else {
-      const title = await repositories.workLogs.getNextTitleForStudent(student.id);
-      const page = await repositories.workLogs.createWorkLog({
-        title,
-        deadline: calculateWeekdayDeadline(request.requestDateTime),
-        category: ADMISSIONS_CATEGORY,
-        requestSeason: REQUEST_SEASON,
-        studentId: student.id,
-        majorIds: request.programmes.map((programme) => {
-          const universityKey = normalizeForComparison(programme.universityName);
-          return majorIds.get(`${universityKey}|${programme.majorSearchKey}`);
-        })
-      });
-      result.workLog = {
-        ...page,
-        action: 'create',
-        deadline: calculateWeekdayDeadline(request.requestDateTime),
-        category: ADMISSIONS_CATEGORY,
-        requestSeason: REQUEST_SEASON
-      };
-      await journal.recordPage(fingerprint, 'workLog', {
-        key: 'work_log',
-        id: page.id,
-        action: 'create'
-      });
+    const deadline = calculateWeekdayDeadline(request.requestDateTime);
+    const knownWorkLogs = await repositories.workLogs.findAdmissionsLogsForStudent(student.id);
+
+    for (const majorPlan of preflight.majors.values()) {
+      step = `work_log:${majorPlan.key}`;
+      const pageKey = journalEntityKey('work_log', majorPlan.key);
+      const previousPage = journalRecord.pages.workLogs.find(
+        (page) => page.key === pageKey
+      );
+      let workLog;
+
+      if (previousPage?.id) {
+        const page = await repositories.workLogs.getById(previousPage.id);
+        workLog = {
+          ...page,
+          action: previousPage.action,
+          majorId: majorIds.get(majorPlan.key),
+          deadline,
+          category: ADMISSIONS_CATEGORY,
+          requestSeason: REQUEST_SEASON
+        };
+      } else {
+        const title = getNextWorkLogTitle(knownWorkLogs);
+        const page = await repositories.workLogs.createWorkLog({
+          title,
+          deadline,
+          category: ADMISSIONS_CATEGORY,
+          requestSeason: REQUEST_SEASON,
+          studentId: student.id,
+          majorId: majorIds.get(majorPlan.key)
+        });
+        workLog = {
+          ...page,
+          action: 'create',
+          majorId: majorIds.get(majorPlan.key),
+          deadline,
+          category: ADMISSIONS_CATEGORY,
+          requestSeason: REQUEST_SEASON
+        };
+        await journal.recordPage(fingerprint, 'workLogs', {
+          key: pageKey,
+          id: page.id,
+          action: 'create'
+        });
+      }
+
+      result.workLogs.push(workLog);
+      if (!knownWorkLogs.some((entry) => entry.id === workLog.id)) {
+        knownWorkLogs.push({
+          id: workLog.id,
+          title: workLog.title,
+          category: ADMISSIONS_CATEGORY
+        });
+      }
     }
 
     await journal.complete(fingerprint);

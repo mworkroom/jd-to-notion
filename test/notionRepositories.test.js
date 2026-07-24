@@ -280,8 +280,8 @@ test('work log repository filters by Student and admissions category and calcula
   const title = await repository.getNextTitleForStudent('student-1');
 
   assert.deepEqual(logs, [
-    { title: WORK_LOG_TITLE_PREFIX, category: ADMISSIONS_CATEGORY },
-    { title: `${WORK_LOG_TITLE_PREFIX} 2`, category: ADMISSIONS_CATEGORY }
+    { id: 'work-1', title: WORK_LOG_TITLE_PREFIX, category: ADMISSIONS_CATEGORY },
+    { id: 'work-2', title: `${WORK_LOG_TITLE_PREFIX} 2`, category: ADMISSIONS_CATEGORY }
   ]);
   assert.equal(title, `${WORK_LOG_TITLE_PREFIX} 3`);
   assert.equal(client.calls.query[0].filter.and[0].relation.contains, 'student-1');

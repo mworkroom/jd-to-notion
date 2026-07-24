@@ -1,6 +1,10 @@
 import { calculateWeekdayDeadline } from '../../shared/deadline.js';
 import { deriveProgrammeFields, normalizeWhitespace } from '../../shared/normalization.js';
-import { ADMISSIONS_CATEGORY, REQUEST_SEASON, getNextWorkLogTitle } from '../../shared/workLog.js';
+import {
+  ADMISSIONS_CATEGORY,
+  REQUEST_SEASON,
+  getNextWorkLogTitles
+} from '../../shared/workLog.js';
 import { createNotionClient } from './client.js';
 import { getNotionConfig } from './config.js';
 import { NotionAppError } from './errors.js';
@@ -60,7 +64,7 @@ export function createNotionPreviewService({ repositories }) {
       };
     },
 
-    async getWorkLogTitleForStudent(studentId) {
+    async getWorkLogTitleForStudent(studentId, workLogCount = 1) {
       const cleanStudentId = normalizeWhitespace(studentId);
       if (!cleanStudentId) {
         throw new NotionAppError({
@@ -71,10 +75,15 @@ export function createNotionPreviewService({ repositories }) {
         });
       }
 
+      const count = normalizeWorkLogCount(workLogCount);
+      const existingLogs = await repositories.workLogs.findAdmissionsLogsForStudent(cleanStudentId);
+      const titles = getNextWorkLogTitles(existingLogs, count);
       return {
         ok: true,
         workLog: {
-          title: await repositories.workLogs.getNextTitleForStudent(cleanStudentId),
+          title: titles[0] ?? '',
+          titles,
+          count,
           category: ADMISSIONS_CATEGORY,
           requestSeason: REQUEST_SEASON
         }
@@ -214,18 +223,44 @@ async function buildProgrammePreview({ repositories, programme, index }) {
 }
 
 async function buildWorkLogPreview({ repositories, request, selectedStudentId }) {
-  const title = request.clientMode === 'new'
-    ? getNextWorkLogTitle([])
+  const count = countUniqueProgrammeIdentities(request.programmes);
+  const titles = request.clientMode === 'new'
+    ? getNextWorkLogTitles([], count)
     : selectedStudentId
-      ? await repositories.workLogs.getNextTitleForStudent(selectedStudentId)
-      : PENDING_WORK_LOG_TITLE;
+      ? getNextWorkLogTitles(
+          await repositories.workLogs.findAdmissionsLogsForStudent(selectedStudentId),
+          count
+        )
+      : [PENDING_WORK_LOG_TITLE];
 
   return {
-    title,
+    title: titles[0] ?? '',
+    titles,
+    count,
     deadline: calculateWeekdayDeadline(request.requestDateTime),
     category: ADMISSIONS_CATEGORY,
     requestSeason: REQUEST_SEASON
   };
+}
+
+function countUniqueProgrammeIdentities(programmes) {
+  return new Set(programmes.map((programme) => [
+    normalizeWhitespace(programme.universityName).toLowerCase(),
+    programme.majorSearchKey
+  ].join('|'))).size;
+}
+
+function normalizeWorkLogCount(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw new NotionAppError({
+      code: 'INVALID_PREVIEW_REQUEST',
+      statusCode: 400,
+      message: 'Work Log count must be an integer between 1 and 100.',
+      details: { errors: ['workLogCount must be an integer between 1 and 100.'] }
+    });
+  }
+  return parsed;
 }
 
 function collectBlockingIssues({ agent, student, programmes }) {

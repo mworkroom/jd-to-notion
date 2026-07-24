@@ -54,12 +54,12 @@ test('entity property builders use canonical property names only', () => {
 
 test('Work Log builder writes only the Phase 3 canonical properties', () => {
   const properties = buildWorkLogProperties({
-    title: '입학요강 3',
+    title: '입학 요강 3',
     deadline: '2026-07-28',
     category: '입학 요강',
     requestSeason: '2026/27',
     studentId: 'student-1',
-    majorIds: ['major-1', 'major-2']
+    majorId: 'major-1'
   });
 
   assert.deepEqual(Object.keys(properties).sort(), [
@@ -74,7 +74,7 @@ test('Work Log builder writes only the Phase 3 canonical properties', () => {
     relation: [{ id: 'student-1' }]
   });
   assert.deepEqual(properties[NOTION_PROPERTY_NAMES.workLog.major], {
-    relation: [{ id: 'major-1' }, { id: 'major-2' }]
+    relation: [{ id: 'major-1' }]
   });
   assert.equal(properties.Status, undefined);
   assert.equal(properties.Hours, undefined);

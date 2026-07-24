@@ -60,7 +60,7 @@ export function buildWorkLogProperties({
   category,
   requestSeason,
   studentId,
-  majorIds
+  majorId
 }) {
   return {
     [NOTION_PROPERTY_NAMES.workLog.title]: titleProperty(title),
@@ -68,6 +68,6 @@ export function buildWorkLogProperties({
     [NOTION_PROPERTY_NAMES.workLog.category]: selectProperty(category),
     [NOTION_PROPERTY_NAMES.workLog.requestSeason]: selectProperty(requestSeason),
     [NOTION_PROPERTY_NAMES.workLog.students]: relationProperty([studentId]),
-    [NOTION_PROPERTY_NAMES.workLog.major]: relationProperty(majorIds)
+    [NOTION_PROPERTY_NAMES.workLog.major]: relationProperty([majorId])
   };
 }
