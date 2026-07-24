@@ -2,16 +2,16 @@
 
 - 작성일: 2026-07-24
 - 대상 프로젝트: Admission Guidelines Automation
-- 상태: Phase 3.1~3.3 완료 · 양원재 B controlled live 생성 및 재검증 통과 · 일반 사용 활성화 대기
+- 상태: Phase 3.1~3.4 완료 · 양원재 B controlled live 검증 통과 · 일반 사용 활성화
 - 선행 단계: Phase 1, Phase 2, Phase 2.5 완료
 
 ## 구현 진행 기록 — 2026-07-24
 
 - Phase 3.1의 한국어 생성 계획 UI, preview 무효화, 생성 조건 요약을 구현했다.
 - Phase 3.2의 property builder, create repository 함수, creation service, fingerprint, in-flight lock, 최소 journal, `POST /api/notion/create`를 구현했다.
-- 실제 endpoint는 `NOTION_CREATION_ENABLED=false`가 기본값이며 Gate B·C 승인 전에는 HTTP 403으로 차단된다.
+- 실제 endpoint는 controlled live 승인 전까지 `NOTION_CREATION_ENABLED=false`로 차단했으며, 일반 사용 승인 후 기본 활성화했다. 환경 변수에 `false`를 지정하면 다시 서버에서 차단된다.
 - fake Notion client로 Student → University → Major → 학과별 Work Log 순서, relation payload, Work Log 도중 부분 실패 복구, 중복 요청 차단을 검증했다.
-- 전체 자동 테스트는 83개가 통과한다.
+- 전체 자동 테스트는 84개가 통과한다.
 - Work Log 제목 접두사 `입학 요강`과 회사 표준 Category option `입학 요강`을 사용한다. Word 파일명의 `[2026입학요강]` 표기는 별도로 유지한다.
 - 수정된 코드의 live 읽기 전용 schema 검사에서 5개 data source 접근, property 이름·type, `Major` exact name, Category `입학 요강`, 요청 시즌 `2026/27` option이 모두 정상이다.
 - 사용자 live 시험은 수정 전 Category 값 때문에 Work Log 생성 단계에서 중단되었다. 로컬 journal이 없어 선행 page 생성 여부는 Notion에서 직접 확인해야 한다.
@@ -32,7 +32,17 @@
 - `입학 요강 1`, `입학 요강 2`, `입학 요강 3` Work Log를 각각 생성했다. 모든 Work Log는 Student relation 1개와 Major relation 1개를 갖고, Category `입학 요강`, 마감일 `2026-07-28`, 요청 시즌 `2026/27`이 저장됐다.
 - Work Log DB의 시스템 사용자가 생성 직후 제목을 `입학 요강`으로 덮어쓰는 현상을 확인했다. 현재 요청에서 앱이 생성한 Work Log에 한정해 번호 제목을 다시 적용하고 실제 저장값을 검증하는 보완 로직을 추가했다.
 - 3초 뒤 재조회에서도 제목과 모든 relation·select·date 값이 유지되는 것을 확인했다.
-- 일반 사용 endpoint는 계속 `NOTION_CREATION_ENABLED=false`가 기본값이며, UI 생성 버튼도 아직 비활성화 상태다.
+- 일반 사용 승인 후 endpoint와 UI 생성 버튼을 활성화했다. 스키마 검사, 최신 preview, 선택·확인 완료, 브라우저 최종 확인을 모두 통과해야 실제 요청이 전송된다.
+
+## 일반 사용 활성화 — 2026-07-25
+
+- 생성 버튼은 서버의 활성화 상태까지 확인하며, 준비 조건이 하나라도 빠지면 비활성화된다.
+- 클릭 시 최종 학생명, Work Log 제목, create/reuse 개수를 browser confirm으로 다시 보여준다.
+- 요청 중 버튼 잠금, 성공 후 동일 화면 재클릭 차단, 서버 fingerprint in-flight/완료 중복 차단을 함께 적용한다.
+- 성공 시 생성된 Student·University·Major·Work Log 링크를 표시한다.
+- 부분 실패 시 완료된 page 링크와 실패 단계를 표시하고, 같은 요청 재실행 시 ID-only journal로 이어서 처리한다.
+- preview 이후 입력을 수정하면 생성 계획과 승인을 즉시 무효화한다.
+- 실제 브라우저에서 준비 전 비활성화, 준비 완료 후 활성화, 입력 수정 후 재비활성화 및 console 오류 0건을 확인했다.
 
 ## 1. 현재 기준선
 

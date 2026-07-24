@@ -12,7 +12,6 @@ coverage/
 .local/
 .DS_Store
 Thumbs.db
-README.md
 ROADMAP.md
 
 # Local Codex / agent workspace metadata

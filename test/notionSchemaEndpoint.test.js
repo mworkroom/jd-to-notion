@@ -9,6 +9,7 @@ import {
 test('/api/notion/schema returns a browser-safe schema summary', async () => {
   const config = makeConfig();
   const server = createAppServer({
+    notionCreationEnabled: true,
     notionConfig: config,
     notionClient: makeSchemaClient(config)
   });
@@ -20,6 +21,7 @@ test('/api/notion/schema returns a browser-safe schema summary', async () => {
 
     assert.equal(response.status, 200);
     assert.equal(payload.ok, true);
+    assert.equal(payload.creationEnabled, true);
     assert.equal(payload.dataSources.workLog.accessible, true);
     assert.doesNotMatch(JSON.stringify(payload), /secret-token/);
     assert.equal(payload.dataSources.workLog.missingProperties.length, 0);

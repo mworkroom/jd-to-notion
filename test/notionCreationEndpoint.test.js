@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAppServer } from '../src/server/server.js';
 
-test('/api/notion/create is disabled by default before the live-write gate', async () => {
+test('/api/notion/create can be explicitly disabled', async () => {
   let called = false;
   const server = createAppServer({
+    notionCreationEnabled: false,
     notionCreationService: {
       async create() {
         called = true;

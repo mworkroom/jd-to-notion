@@ -15,6 +15,9 @@ let requestState = structuredClone(emptyRequest);
 let notionPreviewState = null;
 let clientMode = 'new';
 let notionSchemaValid = false;
+let notionCreationEnabled = false;
+let isCreatingNotion = false;
+let creationCompleted = false;
 
 const elements = {
   jandiMessage: document.querySelector('#jandi-message'),
@@ -41,6 +44,8 @@ const elements = {
   creationPlan: document.querySelector('#creation-plan'),
   creationPlanDetails: document.querySelector('#creation-plan-details'),
   creationReadiness: document.querySelector('#creation-readiness'),
+  creationGateNote: document.querySelector('#creation-gate-note'),
+  creationResult: document.querySelector('#creation-result'),
   createNotionButton: document.querySelector('#create-notion-button'),
   workLogTitle: document.querySelector('#work-log-title'),
   deadline: document.querySelector('#deadline'),
@@ -57,6 +62,7 @@ elements.clearButton.addEventListener('click', clearAll);
 elements.addProgrammeButton.addEventListener('click', addProgramme);
 elements.checkNotionButton.addEventListener('click', checkNotionConnection);
 elements.previewNotionButton.addEventListener('click', previewNotionMatches);
+elements.createNotionButton.addEventListener('click', createNotionRecords);
 elements.copyFilenameButton.addEventListener('click', copyFilename);
 elements.jandiMessage.addEventListener('paste', handleJandiPaste);
 document.addEventListener('keydown', handleJandiImportShortcut);
@@ -128,6 +134,9 @@ function clearAll() {
   notionPreviewState = null;
   clientMode = 'new';
   notionSchemaValid = false;
+  notionCreationEnabled = false;
+  isCreatingNotion = false;
+  creationCompleted = false;
   elements.jandiMessage.value = '';
   elements.analysisStatus.textContent = '';
   elements.copyStatus.textContent = '';
@@ -135,6 +144,7 @@ function clearAll() {
   elements.notionPreviewStatus.textContent = '';
   elements.notionPlanSummary.classList.add('hidden');
   elements.creationPlan.classList.add('hidden');
+  resetCreationResult();
   elements.clientModeInputs.forEach((input) => {
     input.checked = input.value === 'new';
   });
@@ -152,10 +162,12 @@ async function checkNotionConnection() {
     const response = await fetch('/api/notion/schema');
     const payload = await response.json();
     notionSchemaValid = response.ok && payload?.ok === true;
+    notionCreationEnabled = notionSchemaValid && payload?.creationEnabled === true;
     elements.notionStatus.textContent = summarizeNotionSchemaStatus(response, payload);
     renderCreationPlan();
   } catch (error) {
     notionSchemaValid = false;
+    notionCreationEnabled = false;
     elements.notionStatus.textContent = `연결 실패 (${error.message})`;
     renderCreationPlan();
   } finally {
@@ -534,6 +546,8 @@ async function previewNotionMatches() {
     }
 
     notionPreviewState = initializePhase3Review(payload);
+    creationCompleted = false;
+    resetCreationResult();
     elements.notionPreviewStatus.textContent = payload.blockingIssues?.length
       ? '미리보기가 끝났습니다. 아래 확인 필요 항목을 검토해주세요.'
       : '미리보기가 끝났습니다.';
@@ -601,6 +615,8 @@ function invalidateNotionPreview(message) {
     notionPreviewState = null;
     elements.notionPreviewStatus.textContent = message;
   }
+  creationCompleted = false;
+  resetCreationResult();
 }
 
 function initializePhase3Review(payload) {
@@ -623,6 +639,8 @@ function renderCreationPlan() {
     elements.notionPlanSummary.classList.add('hidden');
     elements.creationPlan.classList.add('hidden');
     elements.createNotionButton.disabled = true;
+    elements.createNotionButton.textContent = 'Notion에 기록 생성';
+    elements.createNotionButton.title = 'Notion 미리보기를 먼저 완료해야 합니다.';
     return;
   }
 
@@ -667,11 +685,22 @@ function renderCreationPlan() {
   elements.creationReadiness.classList.toggle('readiness-badge--ready', readiness.ready);
   elements.creationPlan.classList.remove('hidden');
 
-  // Phase 3.2까지는 fake-client 검증만 허용한다. Gate B/C 승인 전에는 항상 비활성화한다.
-  elements.createNotionButton.disabled = true;
-  elements.createNotionButton.title = readiness.ready
-    ? '통제된 live 1건 시험 승인 전까지 비활성화되어 있습니다.'
+  const canCreate = readiness.ready
+    && notionCreationEnabled
+    && !isCreatingNotion
+    && !creationCompleted;
+  elements.createNotionButton.disabled = !canCreate;
+  elements.createNotionButton.textContent = isCreatingNotion
+    ? 'Notion에 생성 중...'
+    : creationCompleted
+      ? 'Notion 생성 완료'
+      : 'Notion에 기록 생성';
+  elements.createNotionButton.title = canCreate
+    ? '최종 확인 후 실제 Notion에 기록합니다.'
     : readiness.reasons.join(' / ');
+  elements.creationGateNote.textContent = notionCreationEnabled
+    ? '생성 버튼을 누르면 위 계획을 한 번 더 확인한 뒤 실제 Notion에 기록합니다.'
+    : '서버의 실제 생성 설정이 꺼져 있습니다. 설정을 활성화하고 서버를 다시 시작해야 합니다.';
 }
 
 function getCreationStatistics() {
@@ -729,6 +758,9 @@ function getCreationReadiness() {
   if (!notionSchemaValid) {
     reasons.push('연결 및 스키마 검사를 통과해야 합니다.');
   }
+  if (notionSchemaValid && !notionCreationEnabled) {
+    reasons.push('서버의 실제 생성 설정을 활성화해야 합니다.');
+  }
   if (Object.keys(validateRequest(requestState)).length > 0) {
     reasons.push('입력값 오류를 모두 수정해야 합니다.');
   }
@@ -763,6 +795,176 @@ function getCreationReadiness() {
     ready: reasons.length === 0,
     reasons
   };
+}
+
+async function createNotionRecords() {
+  if (!notionPreviewState || isCreatingNotion || creationCompleted) {
+    return;
+  }
+
+  const readiness = getCreationReadiness();
+  if (!readiness.ready || !notionCreationEnabled) {
+    renderCreationPlan();
+    return;
+  }
+
+  const statistics = getCreationStatistics();
+  const confirmed = window.confirm([
+    '실제 Notion에 아래 계획을 생성합니다.',
+    '',
+    `최종 학생명: ${getFinalStudentName()}`,
+    `작업 일지: ${formatWorkLogTitles(notionPreviewState.workLog?.titles)}`,
+    `새로 생성: ${statistics.totalCreates}개`,
+    `기존 항목 사용: ${statistics.totalReuses}개`,
+    '',
+    '계속할까요?'
+  ].join('\n'));
+  if (!confirmed) {
+    return;
+  }
+
+  isCreatingNotion = true;
+  resetCreationResult();
+  elements.notionPreviewStatus.textContent = '실제 Notion에 기록을 생성하고 있습니다...';
+  renderCreationPlan();
+
+  try {
+    const response = await fetch('/api/notion/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(buildCreationPayload())
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      if (payload?.error?.code === 'NOTION_CREATION_DISABLED') {
+        notionCreationEnabled = false;
+      }
+      renderCreationFailure(payload?.error);
+      elements.notionPreviewStatus.textContent = 'Notion 생성이 완료되지 않았습니다.';
+      return;
+    }
+
+    creationCompleted = true;
+    renderCreationSuccess(payload);
+    elements.notionPreviewStatus.textContent = 'Notion 생성과 저장 검증이 완료됐습니다.';
+  } catch (error) {
+    renderCreationFailure({
+      code: 'NETWORK_ERROR',
+      message: `로컬 서버 요청에 실패했습니다: ${error.message}`,
+      details: {}
+    });
+    elements.notionPreviewStatus.textContent = 'Notion 생성이 완료되지 않았습니다.';
+  } finally {
+    isCreatingNotion = false;
+    renderCreationPlan();
+  }
+}
+
+function buildCreationPayload() {
+  return {
+    clientMode,
+    requesterName: requestState.requesterName,
+    requestDateTime: requestState.requestDateTime,
+    studentName: requestState.studentName,
+    selectedStudentId: notionPreviewState.student?.selectedStudentId ?? '',
+    extractionWarnings: requestState.extractionWarnings,
+    programmes: requestState.programmes.map((programme, index) => {
+      const reviewedMajor = notionPreviewState.programmes[index]?.major;
+      return {
+        ...programme,
+        reviewedMajorName: reviewedMajor?.reviewedCreateName
+          ?? programme.notionMajorNameProposed,
+        majorNameConfirmed: reviewedMajor?.status === 'matched'
+          || reviewedMajor?.nameConfirmed === true
+      };
+    })
+  };
+}
+
+function renderCreationSuccess(result) {
+  const items = [
+    {
+      label: `학생: ${result.finalStudentName}`,
+      url: result.student?.url
+    },
+    ...result.universities
+      .filter((item) => item.action === 'create')
+      .map((item) => ({ label: `대학: ${item.name}`, url: item.url })),
+    ...result.majors
+      .filter((item) => item.action === 'create')
+      .map((item) => ({ label: `학과: ${item.name}`, url: item.url })),
+    ...result.workLogs.map((item) => ({
+      label: `작업 일지: ${item.title}`,
+      url: item.url
+    }))
+  ];
+  renderCreationResult({
+    tone: 'success',
+    title: 'Notion 생성 완료',
+    message: '생성된 페이지와 relation·제목 저장 검증이 완료됐습니다.',
+    items
+  });
+}
+
+function renderCreationFailure(error = {}) {
+  const partial = error.details?.partialResult;
+  const items = partial
+    ? [
+        partial.student,
+        ...(partial.universities ?? []),
+        ...(partial.majors ?? []),
+        ...(partial.workLogs ?? [])
+      ]
+        .filter((item) => item?.url)
+        .map((item) => ({
+          label: item.title ?? item.name ?? item.id,
+          url: item.url
+        }))
+    : [];
+  const failedStep = error.details?.failedStep
+    ? ` 실패 단계: ${error.details.failedStep}.`
+    : '';
+  renderCreationResult({
+    tone: 'error',
+    title: 'Notion 생성 확인 필요',
+    message: `${error.message ?? '생성 중 오류가 발생했습니다.'}${failedStep} 같은 요청으로 다시 실행하면 완료된 page ID를 사용해 이어서 처리합니다.`,
+    items
+  });
+}
+
+function renderCreationResult({ tone, title, message, items = [] }) {
+  elements.creationResult.innerHTML = '';
+  elements.creationResult.className = `creation-result creation-result--${tone}`;
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  elements.creationResult.append(heading, paragraph(message));
+
+  if (items.length > 0) {
+    const list = document.createElement('ul');
+    for (const item of items) {
+      const li = document.createElement('li');
+      if (item.url) {
+        const link = document.createElement('a');
+        link.href = item.url;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.textContent = item.label;
+        li.append(link);
+      } else {
+        li.textContent = item.label;
+      }
+      list.append(li);
+    }
+    elements.creationResult.append(list);
+  }
+}
+
+function resetCreationResult() {
+  elements.creationResult.innerHTML = '';
+  elements.creationResult.className = 'creation-result hidden';
 }
 
 function getFinalStudentName() {

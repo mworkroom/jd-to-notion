@@ -197,6 +197,40 @@ test('creation service resumes after a later Work Log failure without duplicatin
   );
 });
 
+test('creation service rejects the same fingerprint while the first request is still running', async () => {
+  const barrier = createBarrier();
+  const client = makeClient({
+    blockOnceOnCreate: 'students',
+    createBarrier: barrier,
+    data: {
+      [dataSourceIds.agents]: [titlePage('agent-1', NOTION_PROPERTY_NAMES.agents.name, 'Requester')],
+      [dataSourceIds.students]: [],
+      [dataSourceIds.universities]: [
+        titlePage('uni-warwick', NOTION_PROPERTY_NAMES.universities.name, 'Warwick')
+      ],
+      [dataSourceIds.majors]: [],
+      [dataSourceIds.workLog]: []
+    }
+  });
+  const service = createDefaultNotionCreationService({
+    config,
+    client,
+    journal: createMemoryCreationJournal()
+  });
+
+  const firstRequest = service.create(makeNewClientRequest());
+  await barrier.started;
+
+  await assert.rejects(
+    () => service.create(makeNewClientRequest()),
+    { code: 'NOTION_CREATE_IN_PROGRESS', statusCode: 409 }
+  );
+
+  barrier.release();
+  const result = await firstRequest;
+  assert.equal(result.ok, true);
+});
+
 test('creation service blocks unresolved Agent, Student, and unconfirmed Major before writes', async () => {
   const client = makeClient({
     data: {
@@ -260,12 +294,15 @@ function makeNewClientRequest() {
 function makeClient({
   data = {},
   failOnceOnCreate = null,
-  failOnceOnCreateOccurrence = null
+  failOnceOnCreateOccurrence = null,
+  blockOnceOnCreate = null,
+  createBarrier = null
 } = {}) {
   const calls = [];
   let nextPageId = 1;
   let remainingFailure = failOnceOnCreate;
   const createCounts = new Map();
+  let createWasBlocked = false;
   const schemas = Object.fromEntries(
     NOTION_DATA_SOURCE_KEYS.map((key) => [
       dataSourceIds[key],
@@ -313,6 +350,12 @@ function makeClient({
         });
         createCounts.set(entity, (createCounts.get(entity) ?? 0) + 1);
 
+        if (!createWasBlocked && blockOnceOnCreate === entity && createBarrier) {
+          createWasBlocked = true;
+          createBarrier.markStarted();
+          await createBarrier.wait;
+        }
+
         const occurrenceFailure = failOnceOnCreateOccurrence?.entity === entity
           && failOnceOnCreateOccurrence.occurrence === createCounts.get(entity);
         if (remainingFailure === entity || occurrenceFailure) {
@@ -353,6 +396,23 @@ function makeClient({
   };
 
   return client;
+}
+
+function createBarrier() {
+  let markStarted;
+  let release;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const wait = new Promise((resolve) => {
+    release = resolve;
+  });
+  return {
+    started,
+    wait,
+    markStarted,
+    release
+  };
 }
 
 function makeDataSource(requirements) {

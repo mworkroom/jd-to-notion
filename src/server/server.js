@@ -18,7 +18,7 @@ const sharedDir = path.join(projectRoot, 'src', 'shared');
 
 export function createAppServer(options = {}) {
   const notionCreationEnabled = options.notionCreationEnabled
-    ?? process.env.NOTION_CREATION_ENABLED === 'true';
+    ?? process.env.NOTION_CREATION_ENABLED !== 'false';
   let notionCreationService = options.notionCreationService ?? null;
 
   return createServer(async (request, response) => {
@@ -31,7 +31,7 @@ export function createAppServer(options = {}) {
       }
 
       if (request.method === 'GET' && requestUrl.pathname === '/api/notion/schema') {
-        await handleNotionSchema(response, options);
+        await handleNotionSchema(response, options, notionCreationEnabled);
         return;
       }
 
@@ -115,13 +115,16 @@ async function handleExtract(request, response) {
   });
 }
 
-async function handleNotionSchema(response, options) {
+async function handleNotionSchema(response, options, notionCreationEnabled) {
   try {
     const result = await checkNotionSchema({
       client: options.notionClient,
       config: options.notionConfig
     });
-    sendJson(response, 200, result);
+    sendJson(response, 200, {
+      ...result,
+      creationEnabled: notionCreationEnabled
+    });
   } catch (error) {
     const payload = safeErrorPayload(error);
     sendJson(response, error.statusCode ?? 500, {
