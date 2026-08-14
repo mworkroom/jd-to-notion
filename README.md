@@ -1,6 +1,6 @@
 # Admissions Guideline Local Web App
 
-Local-only app for reviewing a pasted JANDI admissions-guideline request, matching Notion records, creating the required Student/University/Major/Work Log pages, and generating the final Word filename.
+Local-only app for reviewing a pasted JANDI admissions-guideline request, matching Notion records, creating the required Student/University/Major/Work Log pages, and generating the final Word document.
 
 ## Current Phase
 
@@ -20,11 +20,14 @@ Implemented:
 - Programme label generation
 - Final Word filename generation
 - One-click filename copy button
-- Automated tests for extraction, matching, creation, recovery, and endpoint gates
+- Template-preserving Word generation with independent status and create endpoints
+- Streamlined Notion preflight and one-click Word generation
+- SHA-256 template validation, non-overwriting numbered saves, and atomic publication
+- Automatic Desktop work-folder creation using `학생명_Programme Label`
+- Automated tests for extraction, matching, creation, recovery, Word OOXML preservation, and endpoint gates
 
 Not implemented yet:
 
-- Word document generation
 - Public deployment
 
 The app is local-only and binds to `127.0.0.1`. Notion creation becomes available only after the schema check, a fresh preview, all required selections, and explicit confirmation. Existing Notion pages are not modified; the only update exception is reapplying and verifying the numbered title on a Work Log created by the current request.
@@ -61,9 +64,14 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
    NOTION_UNIVERSITIES_DATA_SOURCE_ID=
    NOTION_MAJORS_DATA_SOURCE_ID=
    NOTION_CREATION_ENABLED=true
+   WORD_GENERATION_ENABLED=false
+   WORD_TEMPLATE_PATH=C:\Users\Marion\Documents\Custom Office Templates\[2026입학요강] 자동생성용.docx
+   WORD_TEMPLATE_SHA256=
+   WORD_OUTPUT_DIR=C:\Users\Marion\Desktop
    ```
 
    Extraction and filename generation still work when the Notion values are blank. Set `NOTION_CREATION_ENABLED=false` to disable all create requests at the server.
+   Keep `WORD_GENERATION_ENABLED=false` until the generated DOCX has been visually approved in Microsoft Word. Calculate the source template's exact SHA-256, copy it into `WORD_TEMPLATE_SHA256`, then restart the server before testing Word generation.
 
 7. Run the unit tests:
 
@@ -84,6 +92,34 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
    ```
 
 The server binds to `127.0.0.1` only.
+
+## Word Generation Setup
+
+1. Keep the source template at:
+
+   ```text
+   C:\Users\Marion\Documents\Custom Office Templates\[2026입학요강] 자동생성용.docx
+   ```
+
+2. Confirm the template contains each header marker exactly once:
+
+   ```text
+   [[DEGREE_PREFIX]]
+   [[PROGRAMME_LABEL]]
+   [[STUDENT_NAME]]
+   ```
+
+3. Confirm the body prototype contains `[[UNIVERSITY]]`, `[[PROGRAMME]]`, and `[[URL]]` exactly once, followed by one admissions table and one fixed SOP/reference area.
+4. Calculate the template SHA-256 and put it in `WORD_TEMPLATE_SHA256`:
+
+   ```powershell
+   (Get-FileHash -LiteralPath "C:\Users\Marion\Documents\Custom Office Templates\[2026입학요강] 자동생성용.docx" -Algorithm SHA256).Hash.ToLower()
+   ```
+5. Restart the server. Template status is checked automatically when the Word section opens.
+6. Complete the read-only Notion preview, confirm the final Student and Major names, choose `석사` or `학사`, review the automatically rendered Word summary, and click `Word 파일 만들기`.
+7. After Microsoft Word visual approval, set `WORD_GENERATION_ENABLED=true` and restart the server.
+
+Word generation does not require a successful Notion create request. It copies the source DOCX, changes only `word/header1.xml` and `word/document.xml`, keeps the fixed SOP/reference area once, saves to `WORD_OUTPUT_DIR`, and never opens Word automatically. The same action also creates or reuses a sibling work folder named `학생명_Programme Label`; the DOCX remains directly in `WORD_OUTPUT_DIR`, matching the previous Word macro workflow.
 
 ### Windows double-click startup
 
@@ -117,8 +153,8 @@ Background server output is stored in `.local/app-server.log` and
 8. Paste the token and five data source IDs into `.env`.
 9. Restart the local app after editing `.env`.
 10. Open `http://127.0.0.1:3000`.
-11. Click `연결 및 스키마 확인` in `Notion 생성 미리보기`.
-12. Confirm the status says `연결 및 스키마 정상` before previewing matches.
+11. Click `Notion 항목 확인` in `Notion 생성 미리보기`.
+12. The app checks the connection and schema automatically before previewing matches.
 
 A Notion 404 usually means either the ID is incorrect or the original database/data source has not been shared with the connection.
 
@@ -143,19 +179,19 @@ The live workspace uses `Agent` on Students, `University` on Majors, and exact W
 3. Confirm the editable fields show requester, request date/time, student name, university, programme name, and URL.
 4. Edit any extracted value and confirm the derived fields update.
 5. Select `New client` or `Existing client`.
-6. Click `연결 및 스키마 확인`.
-7. Click `Notion 항목 다시 조회`.
-8. Confirm the 담당자, 학생, 대학, 학과, and 작업 일지 plan. Existing Major degree omissions appear as warnings but do not change the existing page.
-9. Confirm the final filename follows:
+6. Click `Notion 항목 확인`; the connection/schema preflight and read-only item lookup run together.
+7. Confirm the 담당자, 학생, 대학, 학과, and 작업 일지 plan. Existing Major degree omissions appear as warnings but do not change the existing page.
+8. Confirm the final filename follows:
 
    ```text
    [2026입학요강] 학생명님_Programme Label.docx
    ```
 
-10. Confirm every newly created Major name with its checkbox.
-11. Click `Notion에 기록 생성` and review the final browser confirmation.
-12. After creation, open the returned links and confirm each Work Log has one Student and one Major.
-13. Click `Copy file name` when the Word filename is needed.
+9. Confirm every newly created Major name with its checkbox.
+10. Click `Notion에 기록 생성` and review the final browser confirmation.
+11. After creation, open the returned links and confirm each Work Log has one Student and one Major.
+12. If a Word file is needed, choose the degree, review the automatic summary, and click `Word 파일 만들기`.
+13. Click `Copy file name` only when the filename text is needed separately.
 
 ## JANDI to app import with AutoHotkey
 

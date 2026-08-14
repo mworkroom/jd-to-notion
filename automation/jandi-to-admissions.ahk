@@ -41,9 +41,8 @@ TryExtractHoveredMessage()
     shell := ComObject("WScript.Shell")
     scriptPath := A_ScriptDir "\inspect-jandi-cdp.mjs"
     outputPath := A_Temp "\jandi-cdp-" A_TickCount ".txt"
-    MouseGetPos(&mouseX, &mouseY)
     quote := Chr(34)
-    powershellCommand := "& node " . quote . scriptPath . quote . " --extract --x=" . mouseX . " --y=" . mouseY . " --output=" . quote . outputPath . quote
+    powershellCommand := "& node " . quote . scriptPath . quote . " --extract --output=" . quote . outputPath . quote
     command := "powershell.exe -NoProfile -WindowStyle Hidden -Command " . quote . powershellCommand . quote
     exitCode := shell.Run(command, 0, true)
 

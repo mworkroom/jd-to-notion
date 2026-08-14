@@ -11,6 +11,7 @@ $expectedTitle = '<title>Admissions Guideline Helper</title>'
 $localStateDirectory = Join-Path $projectRoot '.local'
 $standardOutputLog = Join-Path $localStateDirectory 'app-server.log'
 $standardErrorLog = Join-Path $localStateDirectory 'app-server-error.log'
+$serverPidFile = Join-Path $localStateDirectory 'app-server.pid'
 
 function Get-LocalAppStatus {
   $tcpClient = [System.Net.Sockets.TcpClient]::new()
@@ -62,11 +63,37 @@ function Open-LocalApp {
   }
 }
 
+function Stop-RecordedLocalServer {
+  if (-not (Test-Path -LiteralPath $serverPidFile)) {
+    return $false
+  }
+
+  $recordedPid = 0
+  if (-not [int]::TryParse((Get-Content -Raw -LiteralPath $serverPidFile).Trim(), [ref]$recordedPid)) {
+    Remove-Item -LiteralPath $serverPidFile -Force -ErrorAction SilentlyContinue
+    return $false
+  }
+
+  $recordedProcess = Get-Process -Id $recordedPid -ErrorAction SilentlyContinue
+  if (-not $recordedProcess -or $recordedProcess.ProcessName -ne 'node') {
+    Remove-Item -LiteralPath $serverPidFile -Force -ErrorAction SilentlyContinue
+    return $false
+  }
+
+  Stop-Process -Id $recordedPid -ErrorAction Stop
+  $recordedProcess.WaitForExit(3000)
+  Remove-Item -LiteralPath $serverPidFile -Force -ErrorAction SilentlyContinue
+  return $true
+}
+
 $initialStatus = Get-LocalAppStatus
 
 if ($initialStatus -eq 'ready') {
-  Open-LocalApp
-  exit 0
+  if (-not (Stop-RecordedLocalServer)) {
+    Open-LocalApp
+    exit 0
+  }
+  $initialStatus = Get-LocalAppStatus
 }
 
 if ($initialStatus -eq 'occupied') {
@@ -101,6 +128,7 @@ try {
     -RedirectStandardOutput $standardOutputLog `
     -RedirectStandardError $standardErrorLog `
     -PassThru
+  Set-Content -LiteralPath $serverPidFile -Value $serverProcess.Id -Encoding Ascii
 } catch {
   Show-LauncherError "The local server could not be started.`n`n$($_.Exception.Message)"
   exit 1

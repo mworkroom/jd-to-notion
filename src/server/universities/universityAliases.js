@@ -6,13 +6,13 @@ import { normalizeWhitespace } from '../../shared/normalization.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const aliasesPath = path.join(projectRoot, 'data', 'universityAliases.csv');
-const aliasRows = loadUniversityAliases(aliasesPath);
-const aliasIndex = buildAliasIndex(aliasRows);
 
 export function resolveUniversityName(rawUniversityName, programmeUrl = '') {
+  const aliasRows = loadUniversityAliases(aliasesPath);
+  const aliasIndex = buildAliasIndex(aliasRows);
   const rawName = normalizeWhitespace(rawUniversityName);
-  const aliasMatch = findByAlias(rawName);
-  const domainMatch = findByDomain(programmeUrl);
+  const aliasMatch = findByAlias(aliasIndex, rawName);
+  const domainMatch = findByDomain(aliasRows, programmeUrl);
   const match = domainMatch ?? aliasMatch;
 
   if (!match) {
@@ -33,11 +33,12 @@ export function resolveUniversityName(rawUniversityName, programmeUrl = '') {
 }
 
 export function isKnownUniversityAlias(value) {
-  return Boolean(findByAlias(value));
+  const aliasRows = loadUniversityAliases(aliasesPath);
+  return Boolean(findByAlias(buildAliasIndex(aliasRows), value));
 }
 
 export function getUniversityAliases() {
-  return aliasRows;
+  return loadUniversityAliases(aliasesPath);
 }
 
 function loadUniversityAliases(filePath) {
@@ -79,11 +80,11 @@ function buildAliasIndex(rows) {
   return index;
 }
 
-function findByAlias(value) {
+function findByAlias(aliasIndex, value) {
   return aliasIndex.get(canonicalUniversityKey(value)) ?? null;
 }
 
-function findByDomain(programmeUrl) {
+function findByDomain(aliasRows, programmeUrl) {
   const host = extractHost(programmeUrl);
   if (!host) {
     return null;

@@ -1,6 +1,7 @@
 export const WORK_LOG_TITLE_PREFIX = '입학 요강';
 export const ADMISSIONS_CATEGORY = '입학 요강';
 export const REQUEST_SEASON = '2026/27';
+export { SOP_CATEGORIES } from './sopReview.js';
 
 export function countExistingWorkLogTasks(entries = [], category = ADMISSIONS_CATEGORY) {
   return entries.filter((entry) => isAdmissionsTask(entry, category)).length;

@@ -68,10 +68,11 @@ test('schema validation reports missing required select options and exact Major 
   );
 
   assert.deepEqual(result.missingProperties, ['Major']);
-  assert.deepEqual(result.missingOptions, [{
-    property: 'Category',
-    option: '입학 요강'
-  }]);
+  assert.deepEqual(result.missingOptions, [
+    { property: 'Category', option: '입학 요강' },
+    { property: 'Category', option: 'SOP 감수(영문)' },
+    { property: 'Category', option: 'SOP 감수(국문)' }
+  ]);
 });
 
 test('schema inspection reports inaccessible data sources cleanly', async () => {

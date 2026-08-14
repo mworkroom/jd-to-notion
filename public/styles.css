@@ -161,6 +161,85 @@ input:focus {
   width: 30px;
 }
 
+.request-type-badge {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  color: #4338ca;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-left: auto;
+  padding: 5px 10px;
+}
+
+.sop-review-block {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.sop-control-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sop-control-grid legend {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.sop-major-selection {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 16px;
+  padding: 14px;
+}
+
+.sop-major-selection p {
+  margin: 0;
+}
+
+.sop-major-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.sop-major-summary {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.sop-major-options {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sop-major-options .student-selection-option {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.sop-major-options .student-selection-option--selected {
+  background: #f3f7ff;
+  border-color: var(--accent);
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -220,7 +299,7 @@ label textarea {
 .programme-row {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 16px;
+  padding: 14px;
 }
 
 .programme-row--error {
@@ -234,11 +313,11 @@ label textarea {
 }
 
 .programme-card-header {
-  align-items: flex-start;
+  align-items: center;
   display: flex;
   gap: 16px;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .programme-card-title {
@@ -248,16 +327,16 @@ label textarea {
 .programme-card-title h4 {
   font-size: 1rem;
   line-height: 1.35;
-  margin: 2px 0 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
 .programme-number {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  color: var(--accent);
+  display: inline-block;
+  font-size: 1rem;
+  margin-right: 4px;
+  min-width: 1.2rem;
 }
 
 .programme-status {
@@ -333,6 +412,13 @@ label textarea {
   gap: 6px;
 }
 
+.programme-url-control {
+  align-items: stretch;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
 .field-label {
   color: var(--muted);
   font-size: 0.86rem;
@@ -342,6 +428,7 @@ label textarea {
 .url-details {
   border: 1px solid var(--line);
   border-radius: 6px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -387,10 +474,14 @@ label textarea {
   position: relative;
 }
 
+.programme-remove-button {
+  flex: 0 0 auto;
+}
+
 .matching-details {
   border-top: 1px solid var(--line);
-  margin-top: 12px;
-  padding-top: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
 }
 
 .matching-details > summary {
@@ -416,12 +507,6 @@ label textarea {
   font-size: 0.8rem;
   margin: 10px 0 0;
   padding: 8px 10px;
-}
-
-.programme-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
 }
 
 .visually-hidden {
@@ -509,6 +594,58 @@ label textarea {
 
 .preview-card a {
   color: var(--accent);
+}
+
+.preview-card--programme {
+  display: grid;
+  gap: 4px;
+}
+
+.preview-summary-line {
+  line-height: 1.45;
+}
+
+.preview-entity {
+  min-width: 0;
+}
+
+.student-selection-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.preview-card .student-selection-option {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  margin-top: 0;
+  padding: 10px 12px;
+}
+
+.preview-card .student-selection-option:hover {
+  border-color: #aab7c6;
+}
+
+.preview-card .student-selection-option--selected {
+  background: #f3f7ff;
+  border-color: var(--accent);
+}
+
+.student-selection-option input {
+  flex: 0 0 auto;
+  margin: 0;
+  width: auto;
+}
+
+.student-selection-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .major-confirmation {
@@ -645,6 +782,84 @@ label textarea {
   font-weight: 700;
 }
 
+.word-degree-options {
+  margin-bottom: 12px;
+}
+
+.word-degree-options legend {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.word-readiness {
+  border-radius: 8px;
+  margin-top: 14px;
+  padding: 12px 14px;
+}
+
+.word-readiness--blocked {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.word-readiness--ready {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.word-readiness ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.word-summary {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.word-summary-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.word-summary-heading h3 {
+  margin: 0;
+}
+
+.word-programme-summary {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding-left: 22px;
+}
+
+.word-programme-summary li {
+  padding-left: 4px;
+}
+
+.word-programme-summary span,
+.word-programme-summary small {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.word-programme-summary small,
+.word-output-path {
+  color: var(--muted);
+}
+
+.word-output-path {
+  overflow-wrap: anywhere;
+}
+
 .preview-status {
   display: inline-block;
   font-weight: 700;
@@ -664,11 +879,13 @@ label textarea {
   .output-grid,
   .programme-fields,
   .derived-fields,
+  .sop-control-grid,
   .plan-facts {
     grid-template-columns: 1fr;
   }
 
-  .creation-plan-heading {
+  .creation-plan-heading,
+  .word-summary-heading {
     align-items: stretch;
     flex-direction: column;
   }
@@ -679,6 +896,10 @@ label textarea {
 
   .programme-card-header {
     align-items: flex-start;
+  }
+
+  .programme-url-control {
+    align-items: stretch;
   }
 
   .url-details summary {

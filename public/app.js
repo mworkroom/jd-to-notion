@@ -2,13 +2,20 @@
 import { generateProgrammeLabel, generateWordFilename } from '/shared/filename.js';
 import { deriveProgrammeFields } from '/shared/normalization.js';
 import { ADMISSIONS_CATEGORY, REQUEST_SEASON, getNextWorkLogTitles } from '/shared/workLog.js';
+import {
+  SOP_REQUEST_TYPE,
+  getSopCategory,
+  getSopWorkLogTitle
+} from '/shared/sopReview.js';
 
 const emptyRequest = {
+  requestType: 'admissions',
   requesterName: '',
   requestDateTime: '',
   studentName: '',
   programmes: [],
-  extractionWarnings: []
+  extractionWarnings: [],
+  sopReview: null
 };
 
 let requestState = structuredClone(emptyRequest);
@@ -18,6 +25,10 @@ let notionSchemaValid = false;
 let notionCreationEnabled = false;
 let isCreatingNotion = false;
 let creationCompleted = false;
+let wordEnvironmentState = null;
+let isGeneratingWord = false;
+let programmeLabelOverride = null;
+let sopCandidatesExpanded = false;
 
 const elements = {
   jandiMessage: document.querySelector('#jandi-message'),
@@ -25,9 +36,14 @@ const elements = {
   clearButton: document.querySelector('#clear-button'),
   analysisStatus: document.querySelector('#analysis-status'),
   reviewSection: document.querySelector('#review-section'),
+  requestTypeBadge: document.querySelector('#request-type-badge'),
+  programmeReviewBlock: document.querySelector('#programme-review-block'),
+  sopReviewBlock: document.querySelector('#sop-review-block'),
+  sopMajorSelection: document.querySelector('#sop-major-selection'),
   studentModeSection: document.querySelector('#student-mode-section'),
   notionPreviewSection: document.querySelector('#notion-preview-section'),
   outputSection: document.querySelector('#output-section'),
+  wordGenerationSection: document.querySelector('#word-generation-section'),
   requesterName: document.querySelector('#requester-name'),
   requestDateTime: document.querySelector('#request-date-time'),
   studentName: document.querySelector('#student-name'),
@@ -35,7 +51,9 @@ const elements = {
   programmeList: document.querySelector('#programme-list'),
   addProgrammeButton: document.querySelector('#add-programme-button'),
   clientModeInputs: document.querySelectorAll('input[name="client-type"]'),
-  checkNotionButton: document.querySelector('#check-notion-button'),
+  clientModeNote: document.querySelector('#client-mode-note'),
+  sopRoundInputs: document.querySelectorAll('input[name="sop-round"]'),
+  sopLanguageInputs: document.querySelectorAll('input[name="sop-language"]'),
   notionStatus: document.querySelector('#notion-status'),
   previewNotionButton: document.querySelector('#preview-notion-button'),
   notionPreviewStatus: document.querySelector('#notion-preview-status'),
@@ -54,21 +72,55 @@ const elements = {
   programmeLabel: document.querySelector('#programme-label'),
   wordFilename: document.querySelector('#word-filename'),
   copyFilenameButton: document.querySelector('#copy-filename-button'),
-  copyStatus: document.querySelector('#copy-status')
+  copyStatus: document.querySelector('#copy-status'),
+  wordStatus: document.querySelector('#word-status'),
+  wordDegreeInputs: document.querySelectorAll('input[name="word-degree"]'),
+  wordReadiness: document.querySelector('#word-readiness'),
+  wordSummary: document.querySelector('#word-summary'),
+  wordResult: document.querySelector('#word-result'),
+  generateWordButton: document.querySelector('#generate-word-button'),
+  wordGenerationStatus: document.querySelector('#word-generation-status')
 };
 
 elements.analyzeButton.addEventListener('click', analyzeMessage);
 elements.clearButton.addEventListener('click', clearAll);
 elements.addProgrammeButton.addEventListener('click', addProgramme);
-elements.checkNotionButton.addEventListener('click', checkNotionConnection);
 elements.previewNotionButton.addEventListener('click', previewNotionMatches);
 elements.createNotionButton.addEventListener('click', createNotionRecords);
 elements.copyFilenameButton.addEventListener('click', copyFilename);
+elements.generateWordButton.addEventListener('click', generateWordFile);
+elements.wordFilename.addEventListener('input', () => {
+  invalidateWordSummary('파일명 변경을 Word 생성 예정 내용에 반영했습니다.');
+  renderWordPanel();
+});
+elements.programmeLabel.addEventListener('input', () => {
+  programmeLabelOverride = elements.programmeLabel.value;
+  elements.wordFilename.value = generateWordFilename({
+    studentName: getFinalStudentName() || requestState.studentName,
+    programmeNames: [programmeLabelOverride]
+  });
+  invalidateWordSummary('공통 학과명 변경을 파일명과 Word 생성 예정 내용에 반영했습니다.');
+  renderWordPanel();
+});
 elements.jandiMessage.addEventListener('paste', handleJandiPaste);
 document.addEventListener('keydown', handleJandiImportShortcut);
 
 elements.clientModeInputs.forEach((input) => {
   input.addEventListener('change', updateClientMode);
+});
+
+elements.sopRoundInputs.forEach((input) => {
+  input.addEventListener('change', updateSopReview);
+});
+elements.sopLanguageInputs.forEach((input) => {
+  input.addEventListener('change', updateSopReview);
+});
+
+elements.wordDegreeInputs.forEach((input) => {
+  input.addEventListener('change', () => {
+    invalidateWordSummary('과정 변경을 Word 생성 예정 내용에 반영했습니다.');
+    renderWordPanel();
+  });
 });
 
 for (const input of [elements.requesterName, elements.requestDateTime, elements.studentName]) {
@@ -115,6 +167,9 @@ async function analyzeMessage() {
     const payload = await response.json();
 
     requestState = normalizeRequest(payload.extraction);
+    configureRequestType();
+    programmeLabelOverride = null;
+    sopCandidatesExpanded = false;
     invalidateNotionPreview('');
     renderRequest();
     renderErrors(payload.errors ?? {});
@@ -137,25 +192,37 @@ function clearAll() {
   notionCreationEnabled = false;
   isCreatingNotion = false;
   creationCompleted = false;
+  wordEnvironmentState = null;
+  isGeneratingWord = false;
+  programmeLabelOverride = null;
+  sopCandidatesExpanded = false;
   elements.jandiMessage.value = '';
   elements.analysisStatus.textContent = '';
   elements.copyStatus.textContent = '';
   elements.notionStatus.textContent = '확인 전';
+  elements.wordStatus.textContent = '확인 전';
   elements.notionPreviewStatus.textContent = '';
+  elements.wordGenerationStatus.textContent = '';
   elements.notionPlanSummary.classList.add('hidden');
   elements.creationPlan.classList.add('hidden');
   resetCreationResult();
+  resetWordResult();
+  elements.wordSummary.classList.add('hidden');
+  elements.wordDegreeInputs.forEach((input) => {
+    input.checked = input.value === '석사';
+  });
   elements.clientModeInputs.forEach((input) => {
     input.checked = input.value === 'new';
+    input.disabled = false;
   });
   elements.reviewSection.classList.add('hidden');
   elements.studentModeSection.classList.add('hidden');
   elements.notionPreviewSection.classList.add('hidden');
   elements.outputSection.classList.add('hidden');
+  elements.wordGenerationSection.classList.add('hidden');
 }
 
 async function checkNotionConnection() {
-  elements.checkNotionButton.disabled = true;
   elements.notionStatus.textContent = '확인 중';
 
   try {
@@ -165,13 +232,13 @@ async function checkNotionConnection() {
     notionCreationEnabled = notionSchemaValid && payload?.creationEnabled === true;
     elements.notionStatus.textContent = summarizeNotionSchemaStatus(response, payload);
     renderCreationPlan();
+    return notionSchemaValid;
   } catch (error) {
     notionSchemaValid = false;
     notionCreationEnabled = false;
     elements.notionStatus.textContent = `연결 실패 (${error.message})`;
     renderCreationPlan();
-  } finally {
-    elements.checkNotionButton.disabled = false;
+    return false;
   }
 }
 
@@ -197,18 +264,75 @@ function summarizeNotionSchemaStatus(response, payload) {
 }
 
 function showSections() {
+  const isSop = requestState.requestType === SOP_REQUEST_TYPE;
   elements.reviewSection.classList.remove('hidden');
   elements.studentModeSection.classList.remove('hidden');
   elements.notionPreviewSection.classList.remove('hidden');
-  elements.outputSection.classList.remove('hidden');
+  elements.outputSection.classList.toggle('hidden', isSop);
+  elements.wordGenerationSection.classList.toggle('hidden', isSop);
+  if (!isSop) {
+    checkWordStatus();
+  }
 }
 
 function renderRequest() {
   elements.requesterName.value = requestState.requesterName;
   elements.requestDateTime.value = requestState.requestDateTime;
   elements.studentName.value = requestState.studentName;
+  elements.requestTypeBadge.textContent = requestState.requestType === SOP_REQUEST_TYPE
+    ? 'SOP 감수'
+    : '입학요강';
+  elements.programmeReviewBlock.classList.toggle('hidden', requestState.requestType === SOP_REQUEST_TYPE);
+  elements.sopReviewBlock.classList.toggle('hidden', requestState.requestType !== SOP_REQUEST_TYPE);
+  renderSopControls();
   renderProgrammes();
   renderDerivedOutput();
+  updatePreviewButtonState();
+}
+
+function configureRequestType() {
+  const isSop = requestState.requestType === SOP_REQUEST_TYPE;
+  clientMode = isSop ? 'existing' : 'new';
+  elements.clientModeInputs.forEach((input) => {
+    input.checked = input.value === clientMode;
+    input.disabled = isSop && input.value === 'new';
+  });
+  elements.clientModeNote.textContent = isSop
+    ? 'SOP 감수는 기존 학생만 지원합니다. 담당자 연결까지 일치하는 학생을 사용합니다.'
+    : '학생 구분을 바꾸면 Notion 항목을 다시 조회해야 합니다.';
+}
+
+function renderSopControls() {
+  if (requestState.requestType !== SOP_REQUEST_TYPE) {
+    return;
+  }
+  elements.sopRoundInputs.forEach((input) => {
+    input.checked = Number(input.value) === Number(requestState.sopReview?.round);
+  });
+  elements.sopLanguageInputs.forEach((input) => {
+    input.checked = input.value === requestState.sopReview?.language;
+  });
+  renderSopMajorSelection();
+}
+
+function updateSopReview() {
+  const round = Number([...elements.sopRoundInputs].find((input) => input.checked)?.value ?? 0);
+  const language = [...elements.sopLanguageInputs].find((input) => input.checked)?.value ?? '';
+  requestState.sopReview = { round, language };
+  if (notionPreviewState) {
+    const title = getSopWorkLogTitle(round, language);
+    notionPreviewState.workLog = {
+      ...notionPreviewState.workLog,
+      title,
+      titles: [title],
+      category: getSopCategory(language)
+    };
+    creationCompleted = false;
+    resetCreationResult();
+    elements.notionPreviewStatus.textContent = '감수 회차·언어 변경을 생성 계획에 반영했습니다.';
+  }
+  renderDerivedOutput();
+  renderErrors(validateRequest(requestState));
   updatePreviewButtonState();
 }
 
@@ -227,8 +351,12 @@ function renderProgrammes() {
     row.innerHTML = `
       <div class="programme-card-header">
         <div class="programme-card-title">
-          <span class="programme-number">Programme ${index + 1}</span>
-          <h4>${escapeHtml(programme.universityName || 'University not set')} <span aria-hidden="true">·</span> ${escapeHtml(programme.programmeNameOriginal || 'Programme not set')}</h4>
+          <h4>
+            <span class="programme-number">${index + 1}.</span>
+            ${escapeHtml(programme.universityName || 'University not set')}
+            <span aria-hidden="true">·</span>
+            ${escapeHtml(programme.notionMajorNameProposed || 'Programme not set')}
+          </h4>
         </div>
         <span class="programme-status programme-status--${status.tone}">${escapeHtml(status.label)}</span>
       </div>
@@ -245,20 +373,28 @@ function renderProgrammes() {
           <span class="field-error" data-error-for="programmes.${index}.universityName"></span>
         </label>
         <label>
-          Programme name
-          <input type="text" data-programme-index="${index}" data-field="programmeNameOriginal" value="${escapeHtml(programme.programmeNameOriginal)}">
+          Proposed Notion Major name
+          <input type="text" data-programme-index="${index}" data-field="programmeNameOriginal" value="${escapeHtml(programme.notionMajorNameProposed)}">
           <span class="field-error" data-error-for="programmes.${index}.programmeNameOriginal"></span>
         </label>
         <div class="programme-url-field">
           <span class="field-label">Programme URL</span>
-          <details class="url-details" ${programme.programmeUrl ? '' : 'open'}>
-            <summary>
-              <span class="url-domain">${escapeHtml(urlDomain || 'URL 없음')}</span>
-              <span class="url-edit-label">전체 주소 보기·수정</span>
-            </summary>
-            <label class="visually-hidden" for="programme-url-${index}">Programme ${index + 1} URL</label>
-            <input id="programme-url-${index}" type="url" data-programme-index="${index}" data-field="programmeUrl" value="${escapeHtml(programme.programmeUrl)}">
-          </details>
+          <div class="programme-url-control">
+            <details class="url-details" ${programme.programmeUrl ? '' : 'open'}>
+              <summary>
+                <span class="url-domain">${escapeHtml(urlDomain || 'URL 없음')}</span>
+                <span class="url-edit-label">전체 주소 보기·수정</span>
+              </summary>
+              <label class="visually-hidden" for="programme-url-${index}">Programme ${index + 1} URL</label>
+              <input id="programme-url-${index}" type="url" data-programme-index="${index}" data-field="programmeUrl" value="${escapeHtml(programme.programmeUrl)}">
+            </details>
+            <button
+              type="button"
+              class="secondary compact programme-remove-button"
+              data-remove-programme="${index}"
+              aria-label="Remove programme ${index + 1}"
+            >Remove</button>
+          </div>
           <span class="field-error" data-error-for="programmes.${index}.programmeUrl"></span>
         </div>
       </div>
@@ -271,22 +407,19 @@ function renderProgrammes() {
           </label>
           <label>
             University alias match
-            <input type="text" value="${escapeHtml(programme.universityAliasMatched ? `Matched by ${programme.universityAliasMatchSource}` : 'No alias match')}" readonly>
+            <input type="text" value="${escapeHtml(programme.universityAliasMatched ? `${programme.universityName} · Matched by ${programme.universityAliasMatchSource}` : 'No alias match')}" readonly>
+          </label>
+          <label>
+            Original Programme name
+            <input type="text" value="${escapeHtml(programme.rawProgrammeName || programme.programmeNameOriginal)}" readonly>
           </label>
           <label>
             Major search key
             <input type="text" value="${escapeHtml(programme.majorSearchKey)}" readonly>
           </label>
-          <label>
-            Proposed Notion Major name
-            <input type="text" value="${escapeHtml(programme.notionMajorNameProposed)}" readonly>
-          </label>
         </div>
       </details>
       ${programme.needsMajorNameReview ? '<p class="programme-review-note">Degree format is ambiguous and should be reviewed before a later Notion creation phase.</p>' : ''}
-      <div class="programme-actions">
-        <button type="button" class="secondary compact" data-remove-programme="${index}">Remove</button>
-      </div>
     `;
 
     elements.programmeList.append(row);
@@ -365,8 +498,22 @@ function getUrlDomain(value) {
 }
 
 function renderDerivedOutput() {
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    const title = notionPreviewState?.workLog?.title
+      ?? getSopWorkLogTitle(requestState.sopReview?.round, requestState.sopReview?.language);
+    elements.workLogTitle.value = title;
+    elements.deadline.value = calculateWeekdayDeadline(requestState.requestDateTime);
+    elements.category.value = getSopCategory(requestState.sopReview?.language);
+    elements.requestSeason.value = REQUEST_SEASON;
+    renderSopMajorSelection();
+    renderNotionPreview();
+    renderCreationPlan();
+    return;
+  }
+
   const programmeNames = requestState.programmes.map((programme) => programme.programmeNameOriginal);
-  const programmeLabel = generateProgrammeLabel(programmeNames);
+  const programmeLabel = programmeLabelOverride ?? generateProgrammeLabel(programmeNames);
+  const finalStudentName = getFinalStudentName() || requestState.studentName;
 
   const workLogTitles = notionPreviewState?.workLog?.titles
     ?? getNextWorkLogTitles([], countUniqueRequestProgrammes());
@@ -376,12 +523,13 @@ function renderDerivedOutput() {
   elements.requestSeason.value = REQUEST_SEASON;
   elements.programmeLabel.value = programmeLabel;
   elements.wordFilename.value = generateWordFilename({
-    studentName: requestState.studentName,
-    programmeNames
+    studentName: finalStudentName,
+    programmeNames: [programmeLabel]
   });
 
   renderNotionPreview();
   renderCreationPlan();
+  renderWordPanel();
 }
 
 function renderNotionPreview() {
@@ -398,18 +546,31 @@ function renderNotionPreview() {
     return;
   }
 
-  elements.notionPreview.append(
+  const previewCards = [
     renderAgentPreview(notionPreviewState.agent),
-    renderStudentPreview(notionPreviewState.student),
-    ...notionPreviewState.programmes.map(renderProgrammePreview),
-    renderWorkLogPreview(notionPreviewState.workLog)
-  );
+    renderStudentPreview(notionPreviewState.student)
+  ];
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    previewCards.push(renderSopMajorPreview(notionPreviewState.sopReview));
+  } else {
+    previewCards.push(...notionPreviewState.programmes.map(renderProgrammePreview));
+  }
+  previewCards.push(renderWorkLogPreview(notionPreviewState.workLog));
+  elements.notionPreview.append(...previewCards);
   bindPreviewInteractions();
 }
 
 function getPlaceholderPreviewItems() {
   if (!requestState.studentName) {
     return ['검토할 요청을 먼저 추출해주세요.'];
+  }
+
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    return [
+      `담당자: ${requestState.requesterName || '검토된 담당자'} 이름으로 기존 항목을 찾습니다.`,
+      `학생: ${requestState.studentName || '검토된 학생'} · 기존 고객 모드`,
+      '학교·학과: 학생의 입학요강 기록에서 자동 선택합니다.'
+    ];
   }
 
   return [
@@ -448,6 +609,7 @@ function addProgramme() {
   invalidateNotionPreview('학과가 추가되어 Notion 항목을 다시 조회해야 합니다.');
   requestState.programmes.push(deriveProgrammeFields({
     universityName: '',
+    rawProgrammeName: '',
     programmeNameOriginal: '',
     programmeUrl: ''
   }));
@@ -490,8 +652,289 @@ async function copyFilename() {
   }
 }
 
+async function checkWordStatus() {
+  elements.wordStatus.textContent = '확인 중';
+
+  try {
+    const response = await fetch('/api/word/status');
+    const payload = await response.json();
+    wordEnvironmentState = response.ok ? payload : null;
+    elements.wordStatus.textContent = summarizeWordStatus(response, payload);
+  } catch (error) {
+    wordEnvironmentState = null;
+    elements.wordStatus.textContent = `확인 실패 (${error.message})`;
+  } finally {
+    renderWordPanel();
+  }
+}
+
+function summarizeWordStatus(response, payload) {
+  if (!response.ok) {
+    return payload?.error?.message ?? '상태 확인 실패';
+  }
+  if (!payload.enabled) {
+    return '기능 비활성화';
+  }
+  if (!payload.template?.valid) {
+    return payload.template?.issues?.[0]?.message ?? '템플릿 확인 필요';
+  }
+  if (!payload.output?.writable) {
+    return payload.output?.issues?.[0]?.message ?? '저장 폴더 확인 필요';
+  }
+  return payload.ready ? '준비 완료' : '확인 필요';
+}
+
+function renderWordSummary(payload) {
+  elements.wordSummary.innerHTML = `
+    <div class="word-summary-heading">
+      <div>
+        <p class="eyebrow">자동 요약</p>
+        <h3>Word 생성 예정 내용</h3>
+      </div>
+      <span class="readiness-badge readiness-badge--ready">입력값 확정</span>
+    </div>
+    <dl class="plan-facts">
+      <div><dt>최종 학생명</dt><dd>${escapeHtml(payload.studentName)}</dd></div>
+      <div><dt>과정</dt><dd>[${escapeHtml(payload.degree)}]</dd></div>
+      <div><dt>Programme Label</dt><dd>${escapeHtml(payload.programmeLabel)}</dd></div>
+      <div><dt>전공 수</dt><dd>${payload.programmes.length}개</dd></div>
+      <div class="wide"><dt>저장 예정 파일명</dt><dd>${escapeHtml(payload.filename)}</dd></div>
+    </dl>
+    <ol class="word-programme-summary">
+      ${payload.programmes.map((programme) => `
+        <li>
+          <strong>${escapeHtml(programme.rawUniversityName)}</strong>
+          <span>${escapeHtml(programme.reviewedMajorName)}</span>
+          <small>${escapeHtml(programme.programmeUrl)}</small>
+        </li>
+      `).join('')}
+    </ol>
+  `;
+  elements.wordSummary.classList.remove('hidden');
+}
+
+async function generateWordFile() {
+  const readiness = getWordReadiness();
+  const payload = buildWordPayload();
+  if (!readiness.ready || !wordEnvironmentState?.ready || isGeneratingWord) {
+    renderWordPanel();
+    return;
+  }
+
+  isGeneratingWord = true;
+  elements.wordGenerationStatus.textContent = 'Word 파일을 만들고 있습니다...';
+  resetWordResult();
+  renderWordPanel();
+
+  try {
+    const response = await fetch('/api/word/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      elements.wordResult.className = 'creation-result creation-result--error';
+      elements.wordResult.innerHTML = `
+        <h3>Word 생성 확인 필요</h3>
+        <p>${escapeHtml(result?.error?.message ?? 'Word 파일을 만들지 못했습니다.')}</p>
+      `;
+      elements.wordGenerationStatus.textContent = 'Word 파일이 생성되지 않았습니다.';
+      if (result?.error?.code === 'WORD_GENERATION_DISABLED'
+        || result?.error?.code === 'WORD_TEMPLATE_INVALID'
+        || result?.error?.code === 'WORD_OUTPUT_UNAVAILABLE') {
+        await checkWordStatus();
+      }
+      return;
+    }
+
+    elements.wordResult.className = 'creation-result creation-result--success';
+    elements.wordResult.innerHTML = `
+      <h3>Word 파일 생성 완료</h3>
+      <p><strong>${escapeHtml(result.filename)}</strong></p>
+      <p class="word-output-path">${escapeHtml(result.outputPath)}</p>
+      <p><strong>${escapeHtml(result.folderCreated ? '작업 폴더 생성' : '기존 작업 폴더 사용')}</strong></p>
+      <p class="word-output-path">${escapeHtml(result.folderPath)}</p>
+      <p>Word는 자동으로 열지 않았습니다.</p>
+    `;
+    elements.wordGenerationStatus.textContent = `${result.programmeCount}개 전공이 포함된 Word 파일을 저장하고 작업 폴더를 준비했습니다.`;
+  } catch (error) {
+    elements.wordResult.className = 'creation-result creation-result--error';
+    elements.wordResult.innerHTML = `
+      <h3>Word 생성 확인 필요</h3>
+      <p>${escapeHtml(`로컬 서버 요청에 실패했습니다: ${error.message}`)}</p>
+    `;
+    elements.wordGenerationStatus.textContent = 'Word 파일이 생성되지 않았습니다.';
+  } finally {
+    isGeneratingWord = false;
+    renderWordPanel();
+  }
+}
+
+function renderWordPanel() {
+  const readiness = getWordReadiness();
+  const payload = buildWordPayload();
+  renderWordReadiness(readiness);
+  if (readiness.ready) {
+    renderWordSummary(payload);
+  } else {
+    elements.wordSummary.classList.add('hidden');
+  }
+
+  const canGenerate = readiness.ready
+    && wordEnvironmentState?.ready === true
+    && !isGeneratingWord;
+  elements.generateWordButton.disabled = !canGenerate;
+  elements.generateWordButton.textContent = isGeneratingWord
+    ? 'Word 파일 생성 중...'
+    : 'Word 파일 만들기';
+  elements.generateWordButton.title = canGenerate
+    ? '현재 확정값으로 새 DOCX 파일을 바로 저장합니다.'
+    : getWordGenerationBlockReason(readiness);
+}
+
+function renderWordReadiness(readiness) {
+  const reasons = [...readiness.reasons];
+
+  if (readiness.ready && wordEnvironmentState === null) {
+    reasons.push('Word 템플릿 상태를 확인하고 있습니다.');
+  } else if (readiness.ready && wordEnvironmentState?.ready !== true) {
+    reasons.push(getWordEnvironmentBlockReason());
+  }
+
+  const ready = readiness.ready
+    && wordEnvironmentState?.ready === true;
+  elements.wordReadiness.className = ready
+    ? 'word-readiness word-readiness--ready'
+    : 'word-readiness word-readiness--blocked';
+  elements.wordReadiness.innerHTML = ready
+    ? '<strong>Word 파일을 만들 준비가 끝났습니다.</strong>'
+    : `
+      <strong>파일 만들기 버튼이 비활성화된 이유</strong>
+      <ul>${reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>
+    `;
+}
+
+function getWordEnvironmentBlockReason() {
+  if (!wordEnvironmentState?.enabled) {
+    return '서버의 Word 생성 기능 설정이 꺼져 있습니다.';
+  }
+  if (!wordEnvironmentState?.template?.valid) {
+    return wordEnvironmentState?.template?.issues?.[0]?.message
+      ?? 'Word 템플릿 확인이 필요합니다.';
+  }
+  if (!wordEnvironmentState?.output?.writable) {
+    return 'Word 저장 폴더를 사용할 수 없습니다.';
+  }
+  return 'Word 상태를 다시 확인해주세요.';
+}
+
+function getWordGenerationBlockReason(readiness) {
+  if (!readiness.ready) {
+    return readiness.reasons.join(' / ');
+  }
+  return getWordEnvironmentBlockReason();
+}
+
+function getWordReadiness() {
+  const reasons = [];
+  const finalStudentName = getFinalStudentName();
+  const programmeLabel = elements.programmeLabel.value.trim();
+  const filename = elements.wordFilename.value.trim();
+
+  if (!notionPreviewState) {
+    reasons.push('Notion 항목 미리보기를 먼저 완료해야 합니다.');
+  }
+  if (!finalStudentName) {
+    reasons.push('최종 학생명을 확정해야 합니다.');
+  }
+  if (requestState.extractionWarnings.length > 0) {
+    reasons.push('추출 경고를 모두 검토하고 수정해야 합니다.');
+  }
+  if (!programmeLabel) {
+    reasons.push('Programme Label을 확인해야 합니다.');
+  }
+  if (!filename) {
+    reasons.push('Word 파일명을 입력해야 합니다.');
+  } else if (filename.includes('..') || /[\\/]/.test(filename)) {
+    reasons.push('Word 파일명에는 폴더 경로나 상대 경로를 사용할 수 없습니다.');
+  }
+  if (requestState.programmes.length === 0) {
+    reasons.push('전공이 한 개 이상 있어야 합니다.');
+  }
+
+  requestState.programmes.forEach((programme, index) => {
+    if (!(programme.rawUniversityName || programme.universityName)?.trim()) {
+      reasons.push(`전공 ${index + 1}의 원문 학교명이 필요합니다.`);
+    }
+    if (!programme.programmeUrl?.trim()) {
+      reasons.push(`전공 ${index + 1}의 URL이 필요합니다.`);
+    }
+    if (!getReviewedMajorName(index)) {
+      reasons.push(`전공 ${index + 1}의 최종 Notion 전공명을 확정해야 합니다.`);
+    }
+  });
+
+  return {
+    ready: reasons.length === 0,
+    reasons
+  };
+}
+
+function buildWordPayload() {
+  return {
+    studentName: getFinalStudentName(),
+    degree: getWordDegree(),
+    filename: elements.wordFilename.value.trim(),
+    programmeLabel: elements.programmeLabel.value.trim(),
+    programmes: requestState.programmes.map((programme, index) => ({
+      rawUniversityName: (programme.rawUniversityName || programme.universityName || '').trim(),
+      reviewedMajorName: getReviewedMajorName(index),
+      programmeUrl: programme.programmeUrl.trim()
+    }))
+  };
+}
+
+function getReviewedMajorName(index) {
+  const major = notionPreviewState?.programmes?.[index]?.major;
+  if (major?.status === 'matched') {
+    return major.selected?.name?.trim() ?? '';
+  }
+
+  const createsMajor = major?.status === 'missing'
+    || (major?.status === 'blocked'
+      && notionPreviewState?.programmes?.[index]?.university?.status === 'missing');
+  if (createsMajor && major?.nameConfirmed) {
+    return major.reviewedCreateName?.trim()
+      || major.proposedCreateName?.trim()
+      || '';
+  }
+
+  return '';
+}
+
+function getWordDegree() {
+  return [...elements.wordDegreeInputs].find((input) => input.checked)?.value ?? '석사';
+}
+
+function invalidateWordSummary(message = '') {
+  elements.wordSummary.classList.add('hidden');
+  resetWordResult();
+  if (message) {
+    elements.wordGenerationStatus.textContent = message;
+  }
+}
+
+function resetWordResult() {
+  elements.wordResult.innerHTML = '';
+  elements.wordResult.className = 'creation-result hidden';
+}
+
 function normalizeRequest(extraction) {
   return {
+    requestType: extraction?.requestType ?? 'admissions',
     requesterName: extraction?.requesterName ?? '',
     requestDateTime: extraction?.requestDateTime ?? '',
     studentName: extraction?.studentName ?? '',
@@ -500,16 +943,23 @@ function normalizeRequest(extraction) {
       universityName: programme.universityName ?? '',
       universityAliasMatched: Boolean(programme.universityAliasMatched),
       universityAliasMatchSource: programme.universityAliasMatchSource ?? null,
+      rawProgrammeName: programme.rawProgrammeName ?? programme.programmeNameOriginal ?? '',
       programmeNameOriginal: programme.programmeNameOriginal ?? '',
       programmeUrl: programme.programmeUrl ?? ''
     })),
     extractionWarnings: Array.isArray(extraction?.extractionWarnings)
       ? extraction.extractionWarnings
-      : []
+      : [],
+    sopReview: extraction?.sopReview
+      ? {
+          round: Number(extraction.sopReview.round),
+          language: extraction.sopReview.language ?? '영문'
+        }
+      : null
   };
 }
 
-async function previewNotionMatches() {
+async function previewNotionMatches(selectedStudentId = '') {
   const errors = validateRequest(requestState);
   renderErrors(errors);
   updatePreviewButtonState();
@@ -519,21 +969,38 @@ async function previewNotionMatches() {
     return;
   }
 
+  invalidateWordSummary('Notion 항목 확인 뒤 Word 생성 예정 내용을 자동 표시합니다.');
+  notionPreviewState = null;
   elements.previewNotionButton.disabled = true;
-  elements.notionPreviewStatus.textContent = 'Notion 항목을 읽기 전용으로 다시 확인하고 있습니다...';
+  elements.previewNotionButton.textContent = 'Notion 연결 및 항목 확인 중...';
+  elements.notionPreviewStatus.textContent = '연결과 스키마를 자동 검사하고 있습니다...';
 
   try {
+    const schemaReady = await checkNotionConnection();
+    if (!schemaReady) {
+      elements.notionPreviewStatus.textContent = 'Notion 연결 또는 스키마 문제를 해결한 뒤 다시 확인해주세요.';
+      renderDerivedOutput();
+      return;
+    }
+
+    elements.notionPreviewStatus.textContent = 'Notion 항목을 읽기 전용으로 확인하고 있습니다...';
     const response = await fetch('/api/notion/preview', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        requestType: requestState.requestType,
         clientMode,
         requesterName: requestState.requesterName,
         requestDateTime: requestState.requestDateTime,
         studentName: requestState.studentName,
-        programmes: requestState.programmes
+        programmes: requestState.programmes,
+        sopReview: requestState.sopReview,
+        selectedStudentId: typeof selectedStudentId === 'string'
+          ? selectedStudentId
+          : notionPreviewState?.student?.selectedStudentId ?? '',
+        selectedMajorId: notionPreviewState?.sopReview?.selectedMajorId ?? ''
       })
     });
     const payload = await response.json();
@@ -546,6 +1013,7 @@ async function previewNotionMatches() {
     }
 
     notionPreviewState = initializePhase3Review(payload);
+    invalidateWordSummary('Notion 확인 결과를 Word 생성 예정 내용에 반영했습니다.');
     creationCompleted = false;
     resetCreationResult();
     elements.notionPreviewStatus.textContent = payload.blockingIssues?.length
@@ -557,6 +1025,9 @@ async function previewNotionMatches() {
     elements.notionPreviewStatus.textContent = `Notion 미리보기 실패: ${error.message}`;
     renderDerivedOutput();
   } finally {
+    elements.previewNotionButton.textContent = notionPreviewState
+      ? 'Notion 항목 다시 확인'
+      : 'Notion 항목 확인';
     updatePreviewButtonState();
   }
 }
@@ -566,6 +1037,12 @@ async function updateWorkLogTitleForSelection(studentId) {
     return;
   }
 
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    await previewNotionMatches(studentId);
+    return;
+  }
+
+  invalidateWordSummary('최종 학생 변경을 Word 생성 예정 내용에 반영했습니다.');
   notionPreviewState.student.selectedStudentId = studentId;
   notionPreviewState.student.selection = {
     type: 'manual',
@@ -617,10 +1094,18 @@ function invalidateNotionPreview(message) {
   }
   creationCompleted = false;
   resetCreationResult();
+  invalidateWordSummary(message
+    ? `${message} Notion 항목을 다시 확인하면 Word 생성 예정 내용도 자동 갱신됩니다.`
+    : 'Notion 항목을 다시 확인하면 Word 생성 예정 내용도 자동 갱신됩니다.');
 }
 
 function initializePhase3Review(payload) {
   const state = structuredClone(payload);
+
+  if (state.requestType === SOP_REQUEST_TYPE) {
+    sopCandidatesExpanded = !state.sopReview?.selectedMajorId;
+    return state;
+  }
 
   for (const programme of state.programmes ?? []) {
     const needsCreate = programme.major.status === 'missing'
@@ -647,6 +1132,10 @@ function renderCreationPlan() {
   const statistics = getCreationStatistics();
   const readiness = getCreationReadiness();
   const finalStudentName = getFinalStudentName();
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    renderSopCreationPlan({ statistics, readiness, finalStudentName });
+    return;
+  }
   const linkedMajorNames = notionPreviewState.programmes.map((programme) => (
     programme.major.selected?.name
       ?? programme.major.reviewedCreateName
@@ -703,7 +1192,64 @@ function renderCreationPlan() {
     : '서버의 실제 생성 설정이 꺼져 있습니다. 설정을 활성화하고 서버를 다시 시작해야 합니다.';
 }
 
+function renderSopCreationPlan({ statistics, readiness, finalStudentName }) {
+  const selected = notionPreviewState.sopReview?.selected;
+  elements.notionPlanSummary.textContent = [
+    '담당자 기존 사용',
+    '학생 기존 항목 사용',
+    '학교·학과 기존 항목 사용',
+    '작업 일지 1개 생성'
+  ].join(' · ');
+  elements.notionPlanSummary.classList.remove('hidden');
+  elements.creationPlanDetails.innerHTML = `
+    <dl class="plan-facts">
+      <div><dt>최종 학생명</dt><dd>${escapeHtml(finalStudentName || '확인 필요')}</dd></div>
+      <div><dt>학교·학과</dt><dd>${escapeHtml(selected ? `${selected.university.name} · ${selected.name}` : '확인 필요')}</dd></div>
+      <div><dt>작업 일지 제목</dt><dd>${escapeHtml(notionPreviewState.workLog?.title || '확인 필요')}</dd></div>
+      <div><dt>Category</dt><dd>${escapeHtml(notionPreviewState.workLog?.category || '확인 필요')}</dd></div>
+      <div><dt>마감일</dt><dd>${escapeHtml(notionPreviewState.workLog?.deadline || '확인 필요')}</dd></div>
+      <div><dt>새로 생성</dt><dd>${statistics.totalCreates}개</dd></div>
+    </dl>
+    ${readiness.reasons.length
+      ? `<div class="readiness-reasons"><strong>생성 전 확인할 항목</strong><ul>${readiness.reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul></div>`
+      : ''}
+  `;
+  elements.creationReadiness.textContent = readiness.ready
+    ? '생성 계획 확인 완료'
+    : `확인 필요 ${readiness.reasons.length}개`;
+  elements.creationReadiness.classList.toggle('readiness-badge--ready', readiness.ready);
+  elements.creationPlan.classList.remove('hidden');
+
+  const canCreate = readiness.ready
+    && notionCreationEnabled
+    && !isCreatingNotion
+    && !creationCompleted;
+  elements.createNotionButton.disabled = !canCreate;
+  elements.createNotionButton.textContent = isCreatingNotion
+    ? 'Notion에 생성 중...'
+    : creationCompleted
+      ? 'Notion 생성 완료'
+      : 'Notion에 기록 생성';
+  elements.createNotionButton.title = canCreate
+    ? '최종 확인 후 실제 Notion에 기록합니다.'
+    : readiness.reasons.join(' / ');
+  elements.creationGateNote.textContent = notionCreationEnabled
+    ? '생성 버튼을 누르면 위 계획을 한 번 더 확인한 뒤 실제 Notion에 기록합니다.'
+    : '서버의 실제 생성 설정이 꺼져 있습니다. 설정을 활성화하고 서버를 다시 시작해야 합니다.';
+}
+
 function getCreationStatistics() {
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    return {
+      studentCreates: 0,
+      universityCreates: 0,
+      majorCreates: 0,
+      workLogCreates: 1,
+      totalCreates: 1,
+      totalReuses: notionPreviewState.sopReview?.selected ? 4 : 2
+    };
+  }
+
   const universities = uniquePreviewEntities(
     notionPreviewState.programmes.map((programme) => ({
       key: programme.university.selected?.id
@@ -775,6 +1321,18 @@ function getCreationReadiness() {
     reasons.push('사용할 기존 학생을 선택해야 합니다.');
   }
 
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    if (!notionPreviewState.sopReview?.selectedMajorId) {
+      reasons.push(notionPreviewState.sopReview?.candidates?.length
+        ? '사용할 학교·학과를 선택해야 합니다.'
+        : '학생의 입학요강 기록에서 사용할 학교·학과를 찾을 수 없습니다.');
+    }
+    return {
+      ready: reasons.length === 0,
+      reasons
+    };
+  }
+
   notionPreviewState.programmes.forEach((programme, index) => {
     if (!['matched', 'missing'].includes(programme.university.status)) {
       reasons.push(`학과 ${index + 1}의 대학을 확정해야 합니다.`);
@@ -814,6 +1372,9 @@ async function createNotionRecords() {
     '',
     `최종 학생명: ${getFinalStudentName()}`,
     `작업 일지: ${formatWorkLogTitles(notionPreviewState.workLog?.titles)}`,
+    ...(requestState.requestType === SOP_REQUEST_TYPE && notionPreviewState.sopReview?.selected
+      ? [`학교·학과: ${notionPreviewState.sopReview.selected.university.name} · ${notionPreviewState.sopReview.selected.name}`]
+      : []),
     `새로 생성: ${statistics.totalCreates}개`,
     `기존 항목 사용: ${statistics.totalReuses}개`,
     '',
@@ -864,7 +1425,23 @@ async function createNotionRecords() {
 }
 
 function buildCreationPayload() {
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    return {
+      requestType: SOP_REQUEST_TYPE,
+      clientMode: 'existing',
+      requesterName: requestState.requesterName,
+      requestDateTime: requestState.requestDateTime,
+      studentName: requestState.studentName,
+      selectedStudentId: notionPreviewState.student?.selectedStudentId ?? '',
+      selectedMajorId: notionPreviewState.sopReview?.selectedMajorId ?? '',
+      sopReview: requestState.sopReview,
+      extractionWarnings: requestState.extractionWarnings,
+      programmes: []
+    };
+  }
+
   return {
+    requestType: requestState.requestType,
     clientMode,
     requesterName: requestState.requesterName,
     requestDateTime: requestState.requestDateTime,
@@ -1035,18 +1612,28 @@ function renderStudentPreview(student) {
 
   if (student.candidates?.length) {
     const list = document.createElement('div');
+    list.className = 'student-selection-list';
     for (const candidate of student.candidates) {
       const label = document.createElement('label');
+      label.className = 'student-selection-option';
       const input = document.createElement('input');
       input.type = 'radio';
       input.name = 'student-selection';
       input.value = candidate.id;
       input.checked = candidate.id === student.selectedStudentId;
       input.dataset.studentSelection = candidate.id;
-      label.append(input, document.createTextNode(` ${candidate.name} (${candidate.agentNames?.join(', ') || '담당자 연결 없음'})`));
-      if (candidate.url) {
-        label.append(document.createTextNode(' '), notionLink(candidate));
+      if (input.checked) {
+        label.classList.add('student-selection-option--selected');
       }
+
+      const candidateText = document.createElement('span');
+      candidateText.className = 'student-selection-name';
+      candidateText.append(
+        notionLink(candidate),
+        document.createTextNode(` (${candidate.agentNames?.join(', ') || '담당자 연결 없음'})`)
+      );
+
+      label.append(input, candidateText);
       list.append(label);
     }
     card.append(list);
@@ -1057,10 +1644,91 @@ function renderStudentPreview(student) {
   return card;
 }
 
+function renderSopMajorSelection() {
+  if (requestState.requestType !== SOP_REQUEST_TYPE) {
+    return;
+  }
+
+  const preview = notionPreviewState?.sopReview;
+  if (!preview) {
+    elements.sopMajorSelection.innerHTML = '<p class="muted">Notion 항목을 확인하면 입학요강 기록에서 학교·학과를 자동 선택합니다.</p>';
+    return;
+  }
+  if (!preview.candidates?.length) {
+    elements.sopMajorSelection.innerHTML = '<p class="programme-review-note">연결 가능한 입학요강 학교·학과가 없습니다. 이번 버전에서는 수동 입력으로 생성할 수 없습니다.</p>';
+    return;
+  }
+
+  const selected = preview.candidates.find((candidate) => candidate.id === preview.selectedMajorId);
+  const summary = selected
+    ? `<div class="sop-major-summary"><span><strong>${escapeHtml(selected.university.name)}</strong> · ${escapeHtml(selected.name)}</span><button type="button" class="secondary compact" data-change-sop-major>변경</button></div>`
+    : '<p class="programme-review-note">학교·학과를 선택해주세요.</p>';
+  const options = sopCandidatesExpanded || !selected
+    ? `<div class="sop-major-options">${preview.candidates.map((candidate) => `
+        <label class="student-selection-option${candidate.id === preview.selectedMajorId ? ' student-selection-option--selected' : ''}">
+          <input type="radio" name="sop-major-selection" value="${escapeHtml(candidate.id)}" ${candidate.id === preview.selectedMajorId ? 'checked' : ''}>
+          <span><strong>${escapeHtml(candidate.university.name)}</strong> · ${escapeHtml(candidate.name)}</span>
+        </label>
+      `).join('')}</div>`
+    : '';
+  elements.sopMajorSelection.innerHTML = `
+    <div class="sop-major-label">학교·학과</div>
+    ${summary}
+    ${options}
+  `;
+
+  elements.sopMajorSelection.querySelector('[data-change-sop-major]')?.addEventListener('click', () => {
+    sopCandidatesExpanded = !sopCandidatesExpanded;
+    renderSopMajorSelection();
+  });
+  elements.sopMajorSelection.querySelectorAll('input[name="sop-major-selection"]').forEach((input) => {
+    input.addEventListener('change', (event) => {
+      const selectedMajorId = event.target.value;
+      preview.selectedMajorId = selectedMajorId;
+      preview.selected = preview.candidates.find((candidate) => candidate.id === selectedMajorId) ?? null;
+      preview.selectionReason = 'manual';
+      sopCandidatesExpanded = false;
+      creationCompleted = false;
+      resetCreationResult();
+      renderDerivedOutput();
+    });
+  });
+}
+
+function renderSopMajorPreview(sopReview) {
+  const card = createPreviewCard('학교·학과');
+  if (sopReview?.selected) {
+    card.append(
+      paragraphWithLink(`대학: ${sopReview.selected.university.name} · 학과: `, sopReview.selected),
+      paragraph(sopReview.selectionReason === 'admissions-1'
+        ? '입학 요강 1 기록을 기준으로 자동 선택했습니다.'
+        : sopReview.selectionReason === 'plain-as-first'
+          ? '번호 없는 첫 입학요강 기록을 기준으로 자동 선택했습니다.'
+          : sopReview.selectionReason === 'single-candidate'
+            ? '유일한 학과 후보를 자동 선택했습니다.'
+            : 'J님이 선택한 학교·학과를 사용합니다.')
+    );
+  } else if (sopReview?.candidates?.length) {
+    card.append(paragraph('후보가 여러 개라 학교·학과 선택이 필요합니다.'));
+  } else {
+    card.append(paragraph('학생의 입학요강 작업 일지에서 연결 가능한 학과를 찾지 못했습니다.'));
+  }
+  return card;
+}
+
 function renderProgrammePreview(programme) {
-  const card = createPreviewCard(`학과 ${programme.index + 1}`);
+  const card = document.createElement('div');
+  card.className = 'preview-card preview-card--programme';
+  const original = document.createElement('p');
+  original.className = 'preview-summary-line';
+  const originalLabel = document.createElement('strong');
+  originalLabel.textContent = `학과 ${programme.index + 1} 원문:`;
+  original.append(
+    originalLabel,
+    document.createTextNode(` ${programme.officialProgrammeName || programme.major.requestedOriginalName}`)
+  );
   card.append(
-    paragraph(`검토된 원문: ${programme.officialProgrammeName || programme.major.requestedOriginalName}`),
+    original,
     renderUniversityPreview(programme.university),
     renderMajorPreview(
       programme.major,
@@ -1074,18 +1742,18 @@ function renderProgrammePreview(programme) {
 
 function renderUniversityPreview(university) {
   const section = document.createElement('div');
-  const heading = document.createElement('h4');
-  heading.textContent = `대학: ${statusLabelForUniversity(university.status)}`;
-  section.append(heading);
+  section.className = 'preview-entity';
+  const status = statusLabelForUniversity(university.status);
 
   if (university.selected) {
-    section.append(paragraphWithLink('기존 대학 사용: ', university.selected));
+    section.append(compactStatusWithLink(`대학: ${status}`, university.selected));
   } else if (university.status === 'missing') {
-    section.append(paragraph(`새로 생성할 이름: ${university.proposedCreateName}`));
+    section.append(compactStatusWithText(`대학: ${status}`, university.proposedCreateName));
   } else if (university.candidates?.length) {
+    section.append(compactStatusWithText(`대학: ${status}`));
     section.append(renderLinkedList(university.candidates));
   } else {
-    section.append(paragraph(`요청된 이름: ${university.requestedName}`));
+    section.append(compactStatusWithText(`대학: ${status}`, university.requestedName));
   }
 
   return section;
@@ -1093,15 +1761,14 @@ function renderUniversityPreview(university) {
 
 function renderMajorPreview(major, programmeIndex, university, degreeNameWarning) {
   const section = document.createElement('div');
-  const heading = document.createElement('h4');
+  section.className = 'preview-entity';
   const effectiveStatus = major.status === 'blocked' && university.status === 'missing'
     ? 'missing'
     : major.status;
-  heading.textContent = `학과: ${statusLabelForMajor(effectiveStatus)}`;
-  section.append(heading);
+  const status = statusLabelForMajor(effectiveStatus);
 
   if (major.selected) {
-    section.append(paragraphWithLink('기존 학과 사용: ', major.selected));
+    section.append(compactStatusWithLink(`학과: ${status}`, major.selected));
     if (degreeNameWarning) {
       const warning = paragraph(
         `학위명 누락 경고: 기존 학과명 “${degreeNameWarning.existingMajorName}”에는 `
@@ -1113,6 +1780,7 @@ function renderMajorPreview(major, programmeIndex, university, degreeNameWarning
       section.append(warning);
     }
   } else if (effectiveStatus === 'missing') {
+    section.append(compactStatusWithText(`학과: ${status}`));
     const label = document.createElement('label');
     label.textContent = '새로 생성할 Notion 학과명';
     const input = document.createElement('input');
@@ -1133,8 +1801,10 @@ function renderMajorPreview(major, programmeIndex, university, degreeNameWarning
     );
     section.append(label, confirmation);
   } else if (major.candidates?.length) {
+    section.append(compactStatusWithText(`학과: ${status}`));
     section.append(renderLinkedList(major.candidates));
   } else if (major.status === 'blocked') {
+    section.append(compactStatusWithText(`학과: ${status}`));
     section.append(paragraph('대학이 확정되어야 학과를 다시 조회할 수 있습니다.'));
   }
 
@@ -1144,7 +1814,9 @@ function renderMajorPreview(major, programmeIndex, university, degreeNameWarning
 function renderWorkLogPreview(workLog) {
   const card = createPreviewCard('작업 일지');
   card.append(
-    paragraph(`생성 개수: ${workLog.count}개 (학과별 1개)`),
+    paragraph(requestState.requestType === SOP_REQUEST_TYPE
+      ? '생성 개수: 1개'
+      : `생성 개수: ${workLog.count}개 (학과별 1개)`),
     paragraph(`제목: ${formatWorkLogTitles(workLog.titles)}`),
     paragraph(`마감일: ${workLog.deadline}`),
     paragraph(`Category: ${workLog.category}`),
@@ -1177,6 +1849,8 @@ function bindPreviewInteractions() {
         programme.major.reviewedCreateName = event.target.value;
         programme.major.nameConfirmed = false;
         renderCreationPlan();
+        invalidateWordSummary('전공명 변경을 Word 생성 예정 내용에 반영했습니다.');
+        renderWordPanel();
       }
     });
   });
@@ -1187,6 +1861,8 @@ function bindPreviewInteractions() {
       if (programme) {
         programme.major.nameConfirmed = event.target.checked;
         renderCreationPlan();
+        invalidateWordSummary('전공명 확인 상태를 Word 생성 예정 내용에 반영했습니다.');
+        renderWordPanel();
       }
     });
   });
@@ -1210,6 +1886,32 @@ function paragraph(text) {
 function paragraphWithLink(prefix, item) {
   const element = document.createElement('p');
   element.append(document.createTextNode(prefix), notionLink(item));
+  return element;
+}
+
+function compactStatusWithLink(label, item) {
+  const element = document.createElement('p');
+  element.className = 'preview-summary-line';
+  const strong = document.createElement('strong');
+  strong.textContent = label;
+  element.append(
+    strong,
+    document.createTextNode(' ('),
+    notionLink(item),
+    document.createTextNode(')')
+  );
+  return element;
+}
+
+function compactStatusWithText(label, value = '') {
+  const element = document.createElement('p');
+  element.className = 'preview-summary-line';
+  const strong = document.createElement('strong');
+  strong.textContent = label;
+  element.append(strong);
+  if (value) {
+    element.append(document.createTextNode(` (${value})`));
+  }
   return element;
 }
 
@@ -1288,6 +1990,16 @@ function validateRequest(request) {
 
   if (!request.studentName.trim()) {
     errors.studentName = '학생 이름이 필요합니다.';
+  }
+
+  if (request.requestType === SOP_REQUEST_TYPE) {
+    if (![1, 2, 3].includes(Number(request.sopReview?.round))) {
+      errors.sopReviewRound = '감수 회차는 1차, 2차, 3차 중 하나여야 합니다.';
+    }
+    if (!['영문', '국문'].includes(request.sopReview?.language)) {
+      errors.sopReviewRound = '언어를 선택해주세요.';
+    }
+    return errors;
   }
 
   if (request.programmes.length === 0) {

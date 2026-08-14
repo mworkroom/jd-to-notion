@@ -13,6 +13,15 @@ import { createNotionClient } from './client.js';
 import { getNotionConfig } from './config.js';
 import { NotionAppError } from './errors.js';
 import { createNotionRepositories } from './repositories/index.js';
+import { buildSopMajorCandidatePreview } from './sopMajorCandidates.js';
+import {
+  ADMISSIONS_REQUEST_TYPE,
+  SOP_LANGUAGES,
+  SOP_REQUEST_TYPE,
+  SOP_REVIEW_ROUNDS,
+  getSopCategory,
+  getSopWorkLogTitle
+} from '../../shared/sopReview.js';
 
 const PENDING_WORK_LOG_TITLE = '기존 학생 선택 필요';
 
@@ -39,6 +48,33 @@ export function createNotionPreviewService({ repositories }) {
         request,
         matchedAgentId
       });
+      if (request.requestType === SOP_REQUEST_TYPE) {
+        const sopReview = await buildSopMajorCandidatePreview({
+          repositories,
+          studentId: student.selectedStudentId,
+          selectedMajorId: request.selectedMajorId
+        });
+        const workLog = buildSopWorkLogPreview(request);
+        const blockingIssues = collectSopBlockingIssues({ agent, student, sopReview });
+
+        return {
+          ok: true,
+          requestType: SOP_REQUEST_TYPE,
+          blockingIssues,
+          agent,
+          student,
+          programmes: [],
+          sopReview,
+          workLog,
+          phase3Plan: {
+            canCreate: false,
+            reasons: ['Controlled live-write approval is still required.'],
+            studentAction: student.selectedStudentId ? 'reuse' : 'select',
+            universitiesToCreate: [],
+            majorsToCreate: []
+          }
+        };
+      }
       const programmes = await Promise.all(
         request.programmes.map((programme, index) => buildProgrammePreview({
           repositories,
@@ -55,6 +91,7 @@ export function createNotionPreviewService({ repositories }) {
 
       return {
         ok: true,
+        requestType: ADMISSIONS_REQUEST_TYPE,
         blockingIssues,
         agent,
         student,
@@ -98,7 +135,10 @@ export function createNotionPreviewService({ repositories }) {
 
 export function validatePreviewRequest(input = {}) {
   const errors = [];
-  const clientMode = input.clientMode;
+  const requestType = input.requestType === SOP_REQUEST_TYPE
+    ? SOP_REQUEST_TYPE
+    : ADMISSIONS_REQUEST_TYPE;
+  const clientMode = requestType === SOP_REQUEST_TYPE ? 'existing' : input.clientMode;
   const requesterName = normalizeWhitespace(input.requesterName);
   const studentName = normalizeWhitespace(input.studentName);
   const programmes = Array.isArray(input.programmes) ? input.programmes : [];
@@ -115,11 +155,11 @@ export function validatePreviewRequest(input = {}) {
     errors.push('studentName is required.');
   }
 
-  if (programmes.length === 0) {
+  if (requestType !== SOP_REQUEST_TYPE && programmes.length === 0) {
     errors.push('At least one programme is required.');
   }
 
-  const normalizedProgrammes = programmes.map((programme, index) => {
+  const normalizedProgrammes = requestType === SOP_REQUEST_TYPE ? [] : programmes.map((programme, index) => {
     const normalized = deriveProgrammeFields({
       rawUniversityName: programme?.rawUniversityName ?? programme?.universityName ?? '',
       universityName: normalizeWhitespace(programme?.universityName),
@@ -138,6 +178,19 @@ export function validatePreviewRequest(input = {}) {
     return normalized;
   });
 
+  const sopReview = requestType === SOP_REQUEST_TYPE
+    ? {
+        round: Number(input.sopReview?.round),
+        language: normalizeWhitespace(input.sopReview?.language)
+      }
+    : null;
+  if (requestType === SOP_REQUEST_TYPE && !SOP_REVIEW_ROUNDS.includes(sopReview.round)) {
+    errors.push('sopReview.round must be 1, 2, or 3.');
+  }
+  if (requestType === SOP_REQUEST_TYPE && !SOP_LANGUAGES.includes(sopReview.language)) {
+    errors.push('sopReview.language must be 영문 or 국문.');
+  }
+
   if (errors.length > 0) {
     throw new NotionAppError({
       code: 'INVALID_PREVIEW_REQUEST',
@@ -148,11 +201,15 @@ export function validatePreviewRequest(input = {}) {
   }
 
   return {
+    requestType,
     clientMode,
     requesterName,
     studentName,
     requestDateTime: normalizeWhitespace(input.requestDateTime),
-    programmes: normalizedProgrammes
+    programmes: normalizedProgrammes,
+    selectedStudentId: normalizeWhitespace(input.selectedStudentId),
+    selectedMajorId: normalizeWhitespace(input.selectedMajorId),
+    sopReview
   };
 }
 
@@ -170,13 +227,36 @@ async function buildStudentPreview({ repositories, request, matchedAgentId }) {
   }
 
   const preview = await repositories.students.getExistingClientPreview(request.studentName, matchedAgentId);
+  const candidates = request.requestType === SOP_REQUEST_TYPE
+    ? preview.candidates.filter((candidate) => candidate.agentIds.includes(matchedAgentId))
+    : preview.candidates;
+  const requestedStudent = candidates.find(
+    (candidate) => candidate.id === request.selectedStudentId
+  );
+  const selectedStudentId = requestedStudent?.id
+    ?? (request.requestType === SOP_REQUEST_TYPE
+      ? candidates.length === 1 ? candidates[0].id : null
+      : preview.selectedStudentId);
   return {
     mode: 'existing',
     baseName: preview.baseName,
-    candidates: preview.candidates,
-    selectedStudentId: preview.selectedStudentId,
-    selection: preview.selection,
-    proposedAction: preview.selectedStudentId ? 'reuse' : 'select'
+    candidates,
+    selectedStudentId,
+    selection: requestedStudent
+      ? { type: 'manual', studentId: requestedStudent.id }
+      : preview.selection,
+    proposedAction: selectedStudentId ? 'reuse' : 'select'
+  };
+}
+
+function buildSopWorkLogPreview(request) {
+  return {
+    title: getSopWorkLogTitle(request.sopReview.round, request.sopReview.language),
+    titles: [getSopWorkLogTitle(request.sopReview.round, request.sopReview.language)],
+    count: 1,
+    deadline: calculateWeekdayDeadline(request.requestDateTime),
+    category: getSopCategory(request.sopReview.language),
+    requestSeason: REQUEST_SEASON
   };
 }
 
@@ -322,6 +402,24 @@ function collectBlockingIssues({ agent, student, programmes }) {
     }
   }
 
+  return issues;
+}
+
+function collectSopBlockingIssues({ agent, student, sopReview }) {
+  const issues = [];
+  if (agent.status === 'missing') {
+    issues.push('Requester Agent was not found.');
+  } else if (agent.status === 'ambiguous') {
+    issues.push('Requester Agent matched multiple rows.');
+  }
+  if (!student.selectedStudentId) {
+    issues.push('Existing Student selection is unresolved.');
+  }
+  if (student.selectedStudentId && sopReview.candidates.length === 0) {
+    issues.push('No eligible Major was found in the Student admissions Work Logs.');
+  } else if (student.selectedStudentId && !sopReview.selectedMajorId) {
+    issues.push('SOP Major selection is unresolved.');
+  }
   return issues;
 }
 

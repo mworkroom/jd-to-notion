@@ -1,51 +1,61 @@
-# Programme Extraction Review Design QA
+# Notion Preview Density Design QA
 
-- Source visual truth: user-provided `C:\Users\Marion\Desktop\IMG 002.png` and the six approved UI changes in the conversation
-- Implementation screenshot: `C:\Users\Marion\Documents\Projects\admission-guidelines-automation\artifacts\programme-extraction-warnings-review-2026-07-21.png`
-- Viewport: 1377 × 1105
-- State: the supplied Sussex/SOAS misplaced-link JANDI message after extraction
+- Source visual truth:
+  - `C:\Users\Marion\Desktop\IMG 006.png`
+  - `C:\Users\Marion\Desktop\IMG 007.png`
+- Browser-rendered implementation screenshot: `C:\Users\Marion\Documents\Projects\admission-guidelines-automation\artifacts\notion-preview-density-2026-07-25.png`
+- Side-by-side comparison: `C:\Users\Marion\Documents\Projects\admission-guidelines-automation\artifacts\notion-preview-density-comparison-2026-07-25.png`
+- Browser viewport: 491 × 918 CSS px
+- Source pixels: 734 × 387 and 400 × 212
+- Implementation pixels: 491 × 918
+- Density normalization: the implementation's focused 442 × 367 region was scaled to the stacked source height for the comparison canvas. The original implementation screenshot remains unscaled evidence.
+- State: existing-client Notion preview for 양원재 with two Student candidates and one matched Sussex / Gender and Development Major
 
 ## Full-view comparison evidence
 
-The original screen gave the three editable fields and four derived fields nearly equal visual weight. The revised screen keeps University, Programme, and URL in the default card, adds a compact University · Programme heading and status badge, and moves matching metadata into a closed details section. The extraction-level warning summary appears before the cards, while the programme with a university/domain conflict receives a red border and an inline explanation.
+The rendered mobile-width preview keeps the existing card and typography system while substantially shortening both requested areas. The Student card is approximately 224 CSS px high and the matched programme card is approximately 107 CSS px high. Neither card overflows the 491 px viewport.
 
 ## Focused region comparison evidence
 
-The programme review region was captured separately because the full-page browser capture repeated content during rendering. The focused screenshot confirms:
+The focused comparison shows the two Student candidates as compact selectable rows. Each 13 px radio sits 8 px from its linked name rather than at the far edge of the card. The duplicate unlinked name line is removed, and the Agent name remains next to the linked Student name.
 
-- three extraction warnings are visible above the cards;
-- the valid Sussex card has a green `정상` status;
-- the conflicting SOAS card has a red `확인 필요` status, red edge, and inline conflict copy;
-- URLs default to `sussex.ac.uk` and `soas.ac.uk` rather than full paths;
-- matching metadata is collapsed by default;
-- both `매칭 상세 보기` and `전체 주소 보기·수정` open successfully.
+The matched programme card contains exactly three visible lines:
+
+- `학과 1 원문: Gender and Development`
+- `대학: 기존 항목 사용 (Sussex)`
+- `학과: 기존 항목 사용 (Gender and Development MA)`
+
+The University and Major names remain Notion links inside their parenthetical values.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing Arial/Helvetica stack and hierarchy were preserved; status and programme summaries add a clearer reading order without introducing a new type system.
-- Spacing and layout rhythm: normal cards are materially shorter because URL paths and derived fields are collapsed; three-column alignment remains consistent with the existing product.
-- Colors and visual tokens: semantic red, amber, and green tokens were added with text labels so state is not communicated by color alone.
-- Image quality and asset fidelity: no raster imagery or custom icons are present in the source or implementation, so this surface is not applicable.
-- Copy and content: warnings name the exact conflict, orphan URL, and missing-URL programme. Existing Notion-area copy remains unchanged because it is outside this iteration.
+- Fonts and typography: the existing Arial/Helvetica stack, weights, and line heights remain unchanged. Bold labels provide the same scan hierarchy as the source annotations without adding another heading row.
+- Spacing and layout rhythm: candidate controls are grouped into 42 px rows with an 8 px control-to-name gap. The programme result uses a 4 px three-line grid and removes redundant status/link lines.
+- Colors and visual tokens: existing neutral, accent, and selected-state colors are reused. The selected row adds only the existing accent border and a light background.
+- Image quality and asset fidelity: these surfaces contain no imagery, logos, or custom icons.
+- Copy and content: the requested three programme lines appear verbatim. Student candidate names and Agent context each appear once.
 
 ## Findings
 
-No actionable P0, P1, or P2 findings remain in the requested programme extraction scope.
+No actionable P0, P1, or P2 findings remain in the requested Notion preview scope.
 
-## Interaction and browser checks
+## Responsive and interaction checks
 
-- Primary interactions tested: Analyze, matching-details disclosure, URL-details disclosure
-- Console errors and warnings: none
-- Automated tests: 54 passed, 0 failed
+- The 491 × 918 viewport has no horizontal overflow in either updated card.
+- The whole Student row is a label-backed click target.
+- Selecting `양원재 B (최승미)` checks the radio, applies the selected-row state, updates the selected Student summary, and triggers the existing work-log title refresh.
+- Actual read-only Notion preview data was used; no creation request was sent.
+- Browser console errors and warnings: none.
+- Automated tests: 84 passed, 0 failed.
 
 ## Comparison history
 
-- Initial implementation: the full-page capture repeated content, so it was rejected as focused visual evidence.
-- Fix/evidence adjustment: a same-state 1377 × 1105 viewport capture of the programme review region was taken and inspected. No code change was required from this capture.
+- Source state: matched University and Major each used separate status and link lines; Student radios were stretched to the far edge by global input/label styles.
+- Implemented fix: combined matched entity status and link into one line, collapsed the programme card to three lines, and introduced compact label-backed Student selection rows.
+- Post-fix evidence: the focused comparison shows adjacent radios and names, no duplicated candidate-name line, and the exact three-line programme summary.
 
 ## Follow-up polish
 
-- P3: translate or simplify the remaining programme action labels in a later whole-app language pass.
-- P3: revisit Notion Preview and Final Output hierarchy during Phase 3 as explicitly deferred.
+- P3: a future whole-section pass could compact the 담당자 and 작업 일지 cards using the same summary-line pattern.
 
 final result: passed

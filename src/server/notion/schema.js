@@ -43,7 +43,7 @@ export const REQUIRED_NOTION_SCHEMAS = Object.freeze({
     {
       name: NOTION_PROPERTY_NAMES.workLog.category,
       type: 'select',
-      options: ['입학 요강']
+      options: ['입학 요강', 'SOP 감수(영문)', 'SOP 감수(국문)']
     },
     { name: NOTION_PROPERTY_NAMES.workLog.deadline, type: 'date' },
     {

@@ -8,6 +8,8 @@ import { safeErrorPayload } from './notion/errors.js';
 import { createDefaultNotionCreationService } from './notion/notionCreationService.js';
 import { createDefaultNotionPreviewService } from './notion/notionPreviewService.js';
 import { checkNotionSchema } from './notion/schema.js';
+import { safeWordError } from './word/errors.js';
+import { createDefaultWordGenerationService } from './word/wordGenerationService.js';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT ?? 3000);
@@ -20,6 +22,7 @@ export function createAppServer(options = {}) {
   const notionCreationEnabled = options.notionCreationEnabled
     ?? process.env.NOTION_CREATION_ENABLED !== 'false';
   let notionCreationService = options.notionCreationService ?? null;
+  let wordGenerationService = options.wordGenerationService ?? null;
 
   return createServer(async (request, response) => {
     try {
@@ -65,6 +68,22 @@ export function createAppServer(options = {}) {
           journalPath: options.notionCreationJournalPath
         });
         await handleNotionCreate(request, response, notionCreationService);
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/word/status') {
+        wordGenerationService ??= createDefaultWordGenerationService({
+          config: options.wordConfig
+        });
+        await handleWordStatus(response, wordGenerationService);
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/api/word/generate') {
+        wordGenerationService ??= createDefaultWordGenerationService({
+          config: options.wordConfig
+        });
+        await handleWordGenerate(request, response, wordGenerationService);
         return;
       }
 
@@ -175,9 +194,36 @@ async function handleNotionCreate(request, response, service) {
   }
 }
 
+async function handleWordStatus(response, service) {
+  try {
+    const result = await service.getStatus();
+    sendJson(response, 200, result);
+  } catch (error) {
+    sendWordError(response, error);
+  }
+}
+
+async function handleWordGenerate(request, response, service) {
+  try {
+    const payload = await readJsonRequest(request);
+    const result = await service.generate(payload);
+    sendJson(response, 201, result);
+  } catch (error) {
+    sendWordError(response, error);
+  }
+}
+
 async function readJsonRequest(request) {
   const body = await readRequestBody(request);
   return JSON.parse(body || '{}');
+}
+
+function sendWordError(response, error) {
+  const payload = safeWordError(error);
+  sendJson(response, error.statusCode ?? 500, {
+    ok: false,
+    error: payload
+  });
 }
 
 function sendNotionError(response, error) {
@@ -211,7 +257,8 @@ async function sendFile(response, filePath, baseDir) {
   try {
     const file = await readFile(resolvedPath);
     response.writeHead(200, {
-      'Content-Type': contentTypeFor(resolvedPath)
+      'Content-Type': contentTypeFor(resolvedPath),
+      'Cache-Control': 'no-store'
     });
     response.end(file);
   } catch {

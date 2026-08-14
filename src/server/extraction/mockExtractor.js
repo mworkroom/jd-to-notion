@@ -1,6 +1,12 @@
 ﻿import { deriveProgrammeFields, normalizeWhitespace } from '../../shared/normalization.js';
 import { isKnownUniversityAlias, resolveUniversityName } from '../universities/universityAliases.js';
 import { DEGREE_LABELS, DEGREE_LABEL_TYPOS } from '../../shared/degreeLabels.js';
+import {
+  SOP_REQUEST_TYPE,
+  detectRequestType,
+  extractSopLanguage,
+  extractSopReviewRound
+} from '../../shared/sopReview.js';
 
 const URL_PATTERN = /(?:https?:\/\/[^\]\s)]+|www\.[^\]\s)]+|(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\]\s)]*)/i;
 const DATE_PATTERN = /(\d{4})[/.](\d{1,2})[/.](\d{1,2})\s*(AM|PM)?\s*(\d{1,2}):(\d{2})/i;
@@ -10,6 +16,7 @@ const DEGREE_LABEL_PATTERN = [...DEGREE_LABELS, ...DEGREE_LABEL_TYPOS]
   .join('|');
 
 export function mockExtractJandiMessage(message) {
+  const requestType = detectRequestType(message);
   const lines = joinWrappedUrlLines(String(message ?? '')
     .split(/\r?\n/)
     .map((line) => normalizeWhitespace(line))
@@ -19,15 +26,25 @@ export function mockExtractJandiMessage(message) {
   const requesterName = extractRequesterName(lines, requestDateLine);
   const studentName = extractStudentName(lines);
   const requestDateTime = parseJandiDateTime(requestDateLine);
-  const programmeExtraction = extractProgrammes(lines);
+  const programmeExtraction = requestType === SOP_REQUEST_TYPE
+    ? { programmes: [], warnings: [] }
+    : extractProgrammes(lines);
   const programmes = programmeExtraction.programmes.map(deriveProgrammeFields);
+  const sopReview = requestType === SOP_REQUEST_TYPE
+    ? {
+        round: extractSopReviewRound(message).value,
+        language: extractSopLanguage(message)
+      }
+    : null;
 
   return {
+    requestType,
     requesterName,
     requestDateTime,
     studentName,
     programmes,
-    extractionWarnings: programmeExtraction.warnings
+    extractionWarnings: programmeExtraction.warnings,
+    sopReview
   };
 }
 
@@ -46,9 +63,14 @@ export function validateExtraction(extraction) {
     errors.studentName = 'Student name is required.';
   }
 
-  if (!Array.isArray(extraction.programmes) || extraction.programmes.length === 0) {
+  if (extraction.requestType === SOP_REQUEST_TYPE && !extraction.sopReview?.round) {
+    errors.sopReviewRound = 'SOP review round must be 1, 2, or 3 and cannot be ambiguous.';
+  }
+
+  if (extraction.requestType !== SOP_REQUEST_TYPE
+    && (!Array.isArray(extraction.programmes) || extraction.programmes.length === 0)) {
     errors.programmes = 'At least one programme is required.';
-  } else {
+  } else if (extraction.requestType !== SOP_REQUEST_TYPE) {
     extraction.programmes.forEach((programme, index) => {
       if (!programme.universityName) {
         errors[`programmes.${index}.universityName`] = 'University name is required.';

@@ -320,6 +320,43 @@ test('work log repository finalizes only the title of a newly created Work Log',
   );
 });
 
+test('work log repository retries a temporary Notion title update conflict', async () => {
+  const client = makeClient({
+    data: {
+      [dataSourceIds.workLog]: [
+        workLogPage('work-1', WORK_LOG_TITLE_PREFIX, ADMISSIONS_CATEGORY, ['student-1'])
+      ]
+    }
+  });
+  const update = client.pages.update;
+  let attempts = 0;
+  client.pages.update = async (request) => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw Object.assign(new Error('Conflict occurred while saving.'), {
+        status: 409,
+        code: 'conflict_error'
+      });
+    }
+    return update(request);
+  };
+  const delays = [];
+  const repository = createWorkLogsRepository({
+    client,
+    dataSourceId: dataSourceIds.workLog,
+    sleep: async (milliseconds) => delays.push(milliseconds)
+  });
+
+  const result = await repository.ensureCreatedWorkLogTitle({
+    pageId: 'work-1',
+    title: `${WORK_LOG_TITLE_PREFIX} 1`
+  });
+
+  assert.equal(result.title, `${WORK_LOG_TITLE_PREFIX} 1`);
+  assert.equal(attempts, 2);
+  assert.deepEqual(delays, [500]);
+});
+
 function makeClient({ data = {}, pageSize = 100 } = {}) {
   const calls = {
     query: [],

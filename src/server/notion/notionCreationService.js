@@ -19,6 +19,12 @@ import { getNotionConfig } from './config.js';
 import { validatePreviewRequest } from './notionPreviewService.js';
 import { createNotionRepositories } from './repositories/index.js';
 import { checkNotionSchema } from './schema.js';
+import { buildSopMajorCandidatePreview } from './sopMajorCandidates.js';
+import {
+  SOP_REQUEST_TYPE,
+  getSopCategory,
+  getSopWorkLogTitle
+} from '../../shared/sopReview.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -64,11 +70,15 @@ export function createNotionCreationService({
         schemaChecker
       });
       const fingerprint = createRequestFingerprint({
+        requestType: request.requestType,
         requesterName: request.requesterName,
         requestDateTime: request.requestDateTime,
         clientMode: request.clientMode,
         studentIdentity: preflight.studentIdentity,
-        programmeUrls: request.programmes.map((programme) => programme.programmeUrl)
+        programmeUrls: request.programmes.map((programme) => programme.programmeUrl),
+        reviewRound: request.sopReview?.round,
+        language: request.sopReview?.language,
+        majorId: preflight.selectedMajor?.id
       });
 
       if (activeFingerprints.has(fingerprint)) {
@@ -150,6 +160,7 @@ export function validateCreationRequest(input = {}) {
   return {
     ...request,
     selectedStudentId: normalizeWhitespace(input.selectedStudentId),
+    selectedMajorId: normalizeWhitespace(input.selectedMajorId),
     programmes
   };
 }
@@ -170,6 +181,10 @@ async function runPreflight({ request, repositories, schemaChecker }) {
       agent.status === 'ambiguous' ? 'AGENT_AMBIGUOUS' : 'AGENT_NOT_FOUND',
       'Requester Agent must have exactly one current match.'
     );
+  }
+
+  if (request.requestType === SOP_REQUEST_TYPE) {
+    return runSopPreflight({ request, repositories, agent: agent.selected });
   }
 
   const student = request.clientMode === 'new'
@@ -278,6 +293,54 @@ async function runPreflight({ request, repositories, schemaChecker }) {
   };
 }
 
+async function runSopPreflight({ request, repositories, agent }) {
+  const student = await repositories.students.getExistingClientPreview(
+    request.studentName,
+    agent.id
+  );
+  const eligibleCandidates = student.candidates.filter(
+    (candidate) => candidate.agentIds.includes(agent.id)
+  );
+  const selectedId = request.selectedStudentId || student.selectedStudentId;
+  const selectedStudent = eligibleCandidates.find((candidate) => candidate.id === selectedId) ?? null;
+  if (!selectedStudent) {
+    throw conflict(
+      'STUDENT_SELECTION_UNRESOLVED',
+      'The selected Student is not one of the current candidates.'
+    );
+  }
+
+  const sopReview = await buildSopMajorCandidatePreview({
+    repositories,
+    studentId: selectedStudent.id,
+    selectedMajorId: request.selectedMajorId
+  });
+  if (request.selectedMajorId && sopReview.selectedMajorId !== request.selectedMajorId) {
+    throw conflict(
+      'SOP_MAJOR_SELECTION_INVALID',
+      'The selected Major is not one of the Student current admissions candidates.'
+    );
+  }
+  if (!sopReview.selected) {
+    throw conflict(
+      sopReview.candidates.length === 0 ? 'SOP_MAJOR_NOT_FOUND' : 'SOP_MAJOR_SELECTION_UNRESOLVED',
+      sopReview.candidates.length === 0
+        ? 'No eligible Major was found in the Student admissions Work Logs.'
+        : 'The SOP Major selection is unresolved.'
+    );
+  }
+
+  return {
+    agent,
+    student,
+    selectedStudent,
+    selectedMajor: sopReview.selected,
+    studentIdentity: selectedStudent.id,
+    universities: new Map(),
+    majors: new Map()
+  };
+}
+
 async function executeCreation({
   request,
   preflight,
@@ -286,6 +349,17 @@ async function executeCreation({
   repositories,
   journal
 }) {
+  if (request.requestType === SOP_REQUEST_TYPE) {
+    return executeSopCreation({
+      request,
+      preflight,
+      fingerprint,
+      journalRecord,
+      repositories,
+      journal
+    });
+  }
+
   const result = {
     ok: true,
     fingerprint,
@@ -434,6 +508,111 @@ async function executeCreation({
       errorCode: mapped.code
     });
 
+    throw new NotionAppError({
+      code: 'NOTION_CREATE_PARTIAL_FAILURE',
+      statusCode: mapped.statusCode ?? 502,
+      message: 'Notion creation stopped. Review the completed items before retrying.',
+      details: {
+        failedStep: step,
+        causeCode: mapped.code,
+        partialResult: result
+      },
+      cause: mapped
+    });
+  }
+}
+
+async function executeSopCreation({
+  request,
+  preflight,
+  fingerprint,
+  journalRecord,
+  repositories,
+  journal
+}) {
+  const title = getSopWorkLogTitle(request.sopReview.round, request.sopReview.language);
+  const category = getSopCategory(request.sopReview.language);
+  const deadline = calculateWeekdayDeadline(request.requestDateTime);
+  const pageKey = journalEntityKey('sop_work_log', preflight.selectedMajor.id);
+  const previousPage = journalRecord.pages.workLogs.find((page) => page.key === pageKey);
+  const result = {
+    ok: true,
+    requestType: SOP_REQUEST_TYPE,
+    fingerprint,
+    student: { ...preflight.selectedStudent, action: 'reuse' },
+    universities: [{ ...preflight.selectedMajor.university, action: 'reuse' }],
+    majors: [{
+      id: preflight.selectedMajor.id,
+      name: preflight.selectedMajor.name,
+      url: preflight.selectedMajor.url,
+      universityId: preflight.selectedMajor.university.id,
+      action: 'reuse'
+    }],
+    workLogs: [],
+    finalStudentName: preflight.selectedStudent.name
+  };
+  let step = 'student';
+
+  try {
+    await journal.recordPage(fingerprint, 'student', {
+      key: 'student',
+      id: preflight.selectedStudent.id,
+      action: 'reuse'
+    });
+
+    step = 'work_log';
+    let workLog;
+    if (previousPage?.id) {
+      const page = await repositories.workLogs.getById(previousPage.id);
+      workLog = {
+        ...page,
+        title,
+        action: previousPage.action,
+        majorId: preflight.selectedMajor.id,
+        deadline,
+        category,
+        requestSeason: REQUEST_SEASON
+      };
+    } else {
+      const page = await repositories.workLogs.createWorkLog({
+        title,
+        deadline,
+        category,
+        requestSeason: REQUEST_SEASON,
+        studentId: preflight.selectedStudent.id,
+        majorId: preflight.selectedMajor.id
+      });
+      workLog = {
+        ...page,
+        action: 'create',
+        majorId: preflight.selectedMajor.id,
+        deadline,
+        category,
+        requestSeason: REQUEST_SEASON
+      };
+      await journal.recordPage(fingerprint, 'workLogs', {
+        key: pageKey,
+        id: page.id,
+        action: 'create'
+      });
+    }
+    result.workLogs.push(workLog);
+
+    step = 'work_log_titles';
+    const finalized = await repositories.workLogs.ensureCreatedWorkLogTitle({
+      pageId: workLog.id,
+      title
+    });
+    workLog.url = finalized.url;
+
+    await journal.complete(fingerprint);
+    return result;
+  } catch (error) {
+    const mapped = mapNotionError(error, 'Notion creation stopped after a partial result.');
+    await journal.fail(fingerprint, {
+      step,
+      errorCode: mapped.code
+    });
     throw new NotionAppError({
       code: 'NOTION_CREATE_PARTIAL_FAILURE',
       statusCode: mapped.statusCode ?? 502,

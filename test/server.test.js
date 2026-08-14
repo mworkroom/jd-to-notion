@@ -25,7 +25,15 @@ test('local app serves the shell and mocked extraction endpoint', async () => {
 
     const page = await fetch(`${baseUrl}/`);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /Admissions Guideline Helper/);
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+    const shell = await page.text();
+    assert.match(shell, /Admissions Guideline Helper/);
+    assert.match(shell, /id="preview-notion-button"[^>]*>Notion 항목 확인</);
+    assert.match(shell, /id="generate-word-button"[^>]*>Word 파일 만들기</);
+    assert.match(shell, /id="programme-label" type="text">/);
+    assert.doesNotMatch(shell, /id="check-notion-button"/);
+    assert.doesNotMatch(shell, /id="check-word-button"/);
+    assert.doesNotMatch(shell, /id="review-word-button"/);
 
     const payload = await extractMessage(baseUrl, [
       '담당자',
@@ -43,6 +51,88 @@ test('local app serves the shell and mocked extraction endpoint', async () => {
     assert.equal(payload.extraction.programmes[0].rawUniversityName, 'University of Warwick');
     assert.equal(payload.extraction.programmes[0].universityName, 'Warwick');
     assert.equal(payload.extraction.programmes[0].majorSearchKey, 'medical biotechnology and business management');
+  } finally {
+    await close(server);
+  }
+});
+
+test('mocked extraction classifies SOP requests without requiring programme data', async () => {
+  const server = createAppServer();
+  await listen(server, '127.0.0.1', 0);
+
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: [
+          '최승미',
+          '2026/08/13 PM 04:44',
+          '[업무요청] 양원재 SOP1차 감수요청',
+          '양원재님 SOP1차 감수요청드립니다.',
+          '양원재_SOP1차.docx'
+        ].join('\n')
+      })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.extraction.requestType, 'sop_review');
+    assert.equal(payload.extraction.studentName, '양원재');
+    assert.deepEqual(payload.extraction.sopReview, { round: 1, language: '영문' });
+    assert.deepEqual(payload.extraction.programmes, []);
+    assert.deepEqual(payload.errors, {});
+  } finally {
+    await close(server);
+  }
+});
+
+test('mocked extraction blocks ambiguous or unsupported SOP review rounds', async () => {
+  const server = createAppServer();
+  await listen(server, '127.0.0.1', 0);
+
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: [
+          '최승미',
+          '2026/08/13 PM 04:44',
+          '[업무요청] 양원재 SOP 2차 3차 감수요청'
+        ].join('\n')
+      })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 422);
+    assert.equal(payload.extraction.sopReview.round, null);
+    assert.ok(payload.errors.sopReviewRound);
+  } finally {
+    await close(server);
+  }
+});
+
+test('mocked extraction reloads the CSV mapping for University of East London', async () => {
+  const server = createAppServer();
+  await listen(server, '127.0.0.1', 0);
+
+  try {
+    const { port } = server.address();
+    const payload = await extractMessage(`http://127.0.0.1:${port}`, [
+      '담당자',
+      '2026/08/03 PM 05:04',
+      '[업무요청] 별칭학생 입학요강',
+      '',
+      'University of East London',
+      'Sports Management MSc',
+      'https://www.uel.ac.uk/postgraduate/courses/msc-sports-management'
+    ].join('\n'));
+
+    assert.equal(payload.extraction.programmes[0].universityName, 'UEL');
+    assert.equal(payload.extraction.programmes[0].universityAliasMatchSource, 'domain');
   } finally {
     await close(server);
   }

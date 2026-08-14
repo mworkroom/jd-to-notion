@@ -5,8 +5,6 @@ import { restoreLinkedUrls } from './jandi-message-text.mjs';
 
 const endpoint = process.argv.find((argument) => argument.startsWith('http')) ?? 'http://127.0.0.1:9222';
 const extractMode = process.argv.includes('--extract');
-const mouseX = Number(process.argv.find((argument) => argument.startsWith('--x='))?.slice(4));
-const mouseY = Number(process.argv.find((argument) => argument.startsWith('--y='))?.slice(4));
 const outputPath = process.argv.find((argument) => argument.startsWith('--output='))?.slice(9);
 const targets = await (await fetch(`${endpoint}/json/list`)).json();
 const target = targets.find((item) => item.type === 'page' && item.url?.includes('edmworks.jandi.com/app'));
@@ -21,18 +19,7 @@ const expression = extractMode
   ? `(() => {
       const restoreLinkedUrls = ${restoreLinkedUrlsSource};
       const cards = [...document.querySelectorAll('.message.article._message')];
-      const point = Number.isFinite(${mouseX}) && Number.isFinite(${mouseY})
-        ? {
-            x: (${mouseX} - window.screenX) * window.devicePixelRatio,
-            y: (${mouseY} - window.screenY) * window.devicePixelRatio
-          }
-        : null;
-      const card = (point
-        ? cards.find((candidate) => {
-            const rect = candidate.getBoundingClientRect();
-            return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
-          })
-        : null) ?? cards.find((candidate) => candidate.matches(':hover') || candidate.querySelector(':hover'));
+      const card = cards.find((candidate) => candidate.matches(':hover') || candidate.querySelector(':hover'));
       if (!card) return null;
       const writer = card.querySelector('.fn-user-name')?.textContent?.trim() ?? '';
       const date = card.querySelector('.article-date, .fn-write-time')?.textContent?.trim() ?? '';

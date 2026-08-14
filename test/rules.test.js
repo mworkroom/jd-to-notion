@@ -65,14 +65,40 @@ test('major normalization treats standalone MCs variants as MSc while preserving
   }
 });
 
-test('generateProgrammeLabel uses the longest shared subject phrase from at least two programmes', () => {
+test('generateProgrammeLabel uses the longest meaningful phrase when coverage is tied', () => {
   assert.equal(
     generateProgrammeLabel([
       'Biomedical Sciences with Bioenterprise MSc',
       'Biomedical Sciences with Management MSc',
       'MA Educational Leadership'
     ]),
-    'Biomedical Sciences with'
+    'Biomedical Sciences'
+  );
+});
+
+test('generateProgrammeLabel permits a repeated leading single word when no longer core phrase wins', () => {
+  assert.equal(
+    generateProgrammeLabel([
+      'MSc Nutrition',
+      'MSc Nutrition, Physical Activity and Public Health',
+      'MSc Nutrition',
+      'MSc Nutritional Sciences',
+      'MSc Crinical and public Health Nutrition'
+    ]),
+    'Nutrition'
+  );
+});
+
+test('generateProgrammeLabel keeps a repeated specific phrase over a more frequent generic word', () => {
+  assert.equal(
+    generateProgrammeLabel([
+      'Sport Business, Management and Policy MSc',
+      'Sport Management MSc',
+      'Sports Management MSc',
+      'Sport Management MSc',
+      'Sport Management MSc'
+    ]),
+    'Sport Management'
   );
 });
 
