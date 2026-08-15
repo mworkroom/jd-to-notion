@@ -39,7 +39,7 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
 3. Go to the project folder:
 
    ```powershell
-   cd "C:\Users\Marion\Documents\Projects\jd_to_notion"
+   cd "C:\Users\Marion\Documents\Projects\jd-to-notion"
    ```
 
 4. Install dependencies:

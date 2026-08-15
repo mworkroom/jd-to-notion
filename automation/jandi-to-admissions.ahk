@@ -7,6 +7,7 @@ SetTitleMatchMode(2)
 ; DOM extraction runs first; manual ⋯ -> Copy remains the fallback.
 
 appWindowTitle := "JD to Notion"
+jdToNotionRoot := EnvGet("USERPROFILE") "\Documents\Projects\jd-to-notion"
 
 ^!+F12::
 {
@@ -39,7 +40,9 @@ appWindowTitle := "JD to Notion"
 TryExtractHoveredMessage()
 {
     shell := ComObject("WScript.Shell")
-    scriptPath := A_ScriptDir "\inspect-jandi-cdp.mjs"
+    global jdToNotionRoot
+    ; This absolute project root keeps the helper available when this block is embedded in EDM.ahk.
+    scriptPath := jdToNotionRoot "\automation\inspect-jandi-cdp.mjs"
     outputPath := A_Temp "\jandi-cdp-" A_TickCount ".txt"
     quote := Chr(34)
     powershellCommand := "& node " . quote . scriptPath . quote . " --extract --output=" . quote . outputPath . quote

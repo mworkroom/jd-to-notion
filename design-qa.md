@@ -3,8 +3,8 @@
 - Source visual truth:
   - `C:\Users\Marion\Desktop\IMG 006.png`
   - `C:\Users\Marion\Desktop\IMG 007.png`
-- Browser-rendered implementation screenshot: `C:\Users\Marion\Documents\Projects\jd_to_notion\artifacts\notion-preview-density-2026-07-25.png`
-- Side-by-side comparison: `C:\Users\Marion\Documents\Projects\jd_to_notion\artifacts\notion-preview-density-comparison-2026-07-25.png`
+- Browser-rendered implementation screenshot: `C:\Users\Marion\Documents\Projects\jd-to-notion\artifacts\notion-preview-density-2026-07-25.png`
+- Side-by-side comparison: `C:\Users\Marion\Documents\Projects\jd-to-notion\artifacts\notion-preview-density-comparison-2026-07-25.png`
 - Browser viewport: 491 × 918 CSS px
 - Source pixels: 734 × 387 and 400 × 212
 - Implementation pixels: 491 × 918
