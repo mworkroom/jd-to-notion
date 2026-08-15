@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $appUrl = "http://127.0.0.1:$Port/"
-$expectedTitle = '<title>Admissions Guideline Helper</title>'
+$expectedTitle = '<title>JD to Notion</title>'
 $localStateDirectory = Join-Path $projectRoot '.local'
 $standardOutputLog = Join-Path $localStateDirectory 'app-server.log'
 $standardErrorLog = Join-Path $localStateDirectory 'app-server-error.log'
@@ -51,7 +51,7 @@ function Show-LauncherError {
   Add-Type -AssemblyName System.Windows.Forms
   [System.Windows.Forms.MessageBox]::Show(
     $Message,
-    'Admission Helper',
+    'JD to Notion',
     [System.Windows.Forms.MessageBoxButtons]::OK,
     [System.Windows.Forms.MessageBoxIcon]::Error
   ) | Out-Null
@@ -144,7 +144,7 @@ for ($attempt = 0; $attempt -lt 40; $attempt += 1) {
   }
 
   if ($status -eq 'occupied') {
-    Show-LauncherError "Port $Port was taken by another app while Admission Helper was starting."
+    Show-LauncherError "Port $Port was taken by another app while JD to Notion was starting."
     exit 1
   }
 
@@ -153,5 +153,5 @@ for ($attempt = 0; $attempt -lt 40; $attempt += 1) {
   }
 }
 
-Show-LauncherError "Admission Helper did not start successfully.`n`nCheck:`n$standardErrorLog"
+Show-LauncherError "JD to Notion did not start successfully.`n`nCheck:`n$standardErrorLog"
 exit 1

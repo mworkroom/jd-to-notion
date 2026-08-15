@@ -39,7 +39,7 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
 3. Go to the project folder:
 
    ```powershell
-   cd "C:\Users\Marion\Documents\Projects\admission-guidelines-automation"
+   cd "C:\Users\Marion\Documents\Projects\jd_to_notion"
    ```
 
 4. Install dependencies:
@@ -123,7 +123,7 @@ Word generation does not require a successful Notion create request. It copies t
 
 ### Windows double-click startup
 
-After the initial setup, double-click `Admission Helper 실행.vbs` in the project
+After the initial setup, double-click `JD to Notion 실행.vbs` in the project
 folder. The launcher:
 
 - opens the app immediately when its local server is already running;
@@ -220,4 +220,4 @@ The watcher ignores unrelated Word files and temporary downloads. It never overw
 
 The app-side import contract is intentionally browser-native: a paste event supplies the raw message to the existing analysis flow. A future Tauri shell can replace only the clipboard/activation adapter while reusing the same input, parser, and review UI.
 
-The script assumes the browser window title contains `Admissions Guideline Helper`. If the title is changed, update `appWindowTitle` in the `.ahk` file. JANDI must be launched with `--remote-debugging-port=9222` for the DOM-first path. The macro trigger (`F12`) and app focus shortcut (`F11`) are intentionally different.
+The script assumes the browser window title contains `JD to Notion`. If the title is changed, update `appWindowTitle` in the `.ahk` file. JANDI must be launched with `--remote-debugging-port=9222` for the DOM-first path. The macro trigger (`F12`) and app focus shortcut (`F11`) are intentionally different.

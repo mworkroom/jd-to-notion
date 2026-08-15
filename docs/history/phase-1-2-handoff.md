@@ -7,7 +7,7 @@
 현재 canonical 프로젝트 경로:
 
 ```text
-C:\Users\Marion\Documents\Projects\admission-guidelines-automation
+C:\Users\Marion\Documents\Projects\jd_to_notion
 ```
 
 기존 Codex 채팅이 예전 폴더명을 working directory로 기억하면 경로를 찾지 못할 수 있다. 기존 채팅과 예전 폴더는 참고용 archive로 보존하고, 이후 개발은 이 canonical 프로젝트와 새 Codex 채팅에서 이어간다.
@@ -209,7 +209,7 @@ JANDI 원문 학교명은 보존하고, Notion 매칭용 이름만 alias resolve
 실행 명령:
 
 ```powershell
-cd "C:\Users\Marion\Documents\Projects\admission-guidelines-automation"
+cd "C:\Users\Marion\Documents\Projects\jd_to_notion"
 npm install
 npm test
 npm start

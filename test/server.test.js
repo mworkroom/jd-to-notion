@@ -27,7 +27,7 @@ test('local app serves the shell and mocked extraction endpoint', async () => {
     assert.equal(page.status, 200);
     assert.equal(page.headers.get('cache-control'), 'no-store');
     const shell = await page.text();
-    assert.match(shell, /Admissions Guideline Helper/);
+    assert.match(shell, /JD to Notion/);
     assert.match(shell, /id="preview-notion-button"[^>]*>Notion 항목 확인</);
     assert.match(shell, /id="generate-word-button"[^>]*>Word 파일 만들기</);
     assert.match(shell, /id="programme-label" type="text">/);

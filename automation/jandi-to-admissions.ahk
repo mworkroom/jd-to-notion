@@ -6,7 +6,7 @@ SetTitleMatchMode(2)
 ; The app's internal focus shortcut is intentionally different: Ctrl + Alt + Shift + F11.
 ; DOM extraction runs first; manual ⋯ -> Copy remains the fallback.
 
-appWindowTitle := "Admissions Guideline Helper"
+appWindowTitle := "JD to Notion"
 
 ^!+F12::
 {
