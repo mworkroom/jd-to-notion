@@ -204,6 +204,19 @@ The browser app accepts an automated JANDI import without requiring text selecti
 5. The script first reads the hovered message from JANDI's Electron renderer through the local DevTools port, then activates the app, focuses the JANDI input, and pastes the sender, date, body, and links.
 6. If DOM extraction is unavailable, the script falls back to JANDI's manual `⋯` → `Copy` flow and continues automatically after the clipboard changes.
 7. The browser app starts `Analyze` automatically after the paste.
+8. For an SOP request, the app arms a two-minute watcher for the `.docx` attachment names found in that same message.
+9. Return to JANDI and download the SOP Word attachment. After the download finishes, the app moves the confirmed student name to the front of the filename and shows the result in the SOP review area.
+
+Examples:
+
+```text
+SOP_1차_0731.docx                    → 은주하_SOP_1차_0731.docx
+Personal essay 최최종본_은주하.docx → 은주하_Personal essay 최최종본.docx
+Personal essay 최종(은주하).docx    → 은주하_Personal essay 최종.docx
+SOP_오지석_초안.docx                → 오지석_SOP_초안.docx
+```
+
+The watcher ignores unrelated Word files and temporary downloads. It never overwrites an existing normalized file; filename collisions use ` (2)`, ` (3)`, and so on. Set `JANDI_DOWNLOAD_DIR` in `.env` only when JANDI saves files somewhere other than the Windows `Downloads` folder.
 
 The app-side import contract is intentionally browser-native: a paste event supplies the raw message to the existing analysis flow. A future Tauri shell can replace only the clipboard/activation adapter while reusing the same input, parser, and review UI.
 

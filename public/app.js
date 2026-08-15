@@ -29,6 +29,10 @@ let wordEnvironmentState = null;
 let isGeneratingWord = false;
 let programmeLabelOverride = null;
 let sopCandidatesExpanded = false;
+let sopDownloadContextId = '';
+let sopDownloadPollTimer = null;
+let sopDownloadRearmTimer = null;
+let sopDownloadRequestSequence = 0;
 
 const elements = {
   jandiMessage: document.querySelector('#jandi-message'),
@@ -39,6 +43,7 @@ const elements = {
   requestTypeBadge: document.querySelector('#request-type-badge'),
   programmeReviewBlock: document.querySelector('#programme-review-block'),
   sopReviewBlock: document.querySelector('#sop-review-block'),
+  sopDownloadStatus: document.querySelector('#sop-download-status'),
   sopMajorSelection: document.querySelector('#sop-major-selection'),
   studentModeSection: document.querySelector('#student-mode-section'),
   notionPreviewSection: document.querySelector('#notion-preview-section'),
@@ -177,6 +182,11 @@ async function analyzeMessage() {
     elements.analysisStatus.textContent = response.ok
       ? 'Extraction complete. Review every field before using the filename.'
       : 'Extraction needs correction. Missing fields are marked below.';
+    if (response.ok && requestState.requestType === SOP_REQUEST_TYPE) {
+      void armSopDownload();
+    } else {
+      void cancelSopDownload();
+    }
   } catch (error) {
     elements.analysisStatus.textContent = `Extraction failed: ${error.message}`;
   } finally {
@@ -196,6 +206,7 @@ function clearAll() {
   isGeneratingWord = false;
   programmeLabelOverride = null;
   sopCandidatesExpanded = false;
+  void cancelSopDownload();
   elements.jandiMessage.value = '';
   elements.analysisStatus.textContent = '';
   elements.copyStatus.textContent = '';
@@ -588,6 +599,149 @@ function updateRequestFromBaseFields() {
   renderDerivedOutput();
   renderErrors(validateRequest(requestState));
   updatePreviewButtonState();
+  if (requestState.requestType === SOP_REQUEST_TYPE) {
+    scheduleSopDownloadRearm();
+  }
+}
+
+function scheduleSopDownloadRearm() {
+  window.clearTimeout(sopDownloadRearmTimer);
+  sopDownloadRearmTimer = window.setTimeout(() => {
+    void armSopDownload();
+  }, 500);
+}
+
+async function armSopDownload() {
+  const studentName = requestState.studentName.trim();
+  const message = elements.jandiMessage.value.trim();
+  const requestSequence = ++sopDownloadRequestSequence;
+
+  stopSopDownloadPolling();
+  if (!studentName || !message || requestState.requestType !== SOP_REQUEST_TYPE) {
+    renderSopDownloadStatus({ status: 'not_armed', reason: 'student_name_missing' });
+    return;
+  }
+
+  renderSopDownloadStatus({ status: 'preparing' });
+  try {
+    const response = await fetch('/api/sop-download/arm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentName, message })
+    });
+    const status = await response.json();
+    if (requestSequence !== sopDownloadRequestSequence) {
+      return;
+    }
+
+    sopDownloadContextId = status.id ?? '';
+    renderSopDownloadStatus(status);
+    if (status.status === 'armed') {
+      pollSopDownloadStatus();
+    }
+  } catch (error) {
+    renderSopDownloadStatus({
+      status: 'error',
+      reason: 'download_arm_failed',
+      message: error.message
+    });
+  }
+}
+
+function pollSopDownloadStatus() {
+  stopSopDownloadPolling();
+
+  const poll = async () => {
+    if (!sopDownloadContextId) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/sop-download/status?id=${encodeURIComponent(sopDownloadContextId)}`);
+      const status = await response.json();
+      if (!response.ok) {
+        renderSopDownloadStatus({ status: 'error', reason: status.reason ?? 'status_failed' });
+        return;
+      }
+
+      renderSopDownloadStatus(status);
+      if (status.status === 'armed') {
+        sopDownloadPollTimer = window.setTimeout(poll, 750);
+      }
+    } catch (error) {
+      renderSopDownloadStatus({
+        status: 'error',
+        reason: 'status_failed',
+        message: error.message
+      });
+    }
+  };
+
+  sopDownloadPollTimer = window.setTimeout(poll, 750);
+}
+
+async function cancelSopDownload() {
+  sopDownloadRequestSequence += 1;
+  window.clearTimeout(sopDownloadRearmTimer);
+  stopSopDownloadPolling();
+  sopDownloadContextId = '';
+  try {
+    await fetch('/api/sop-download/cancel', { method: 'POST' });
+  } catch {
+    // The app can still clear its local state if the local server is restarting.
+  }
+}
+
+function stopSopDownloadPolling() {
+  window.clearTimeout(sopDownloadPollTimer);
+  sopDownloadPollTimer = null;
+}
+
+function renderSopDownloadStatus(status = {}) {
+  const attachments = (status.attachmentNames ?? []).join(' · ');
+  let tone = 'neutral';
+  let message = 'SOP 요청을 분석하면 첨부파일 이름 자동 정리를 준비합니다.';
+
+  if (status.status === 'preparing') {
+    tone = 'working';
+    message = 'SOP 첨부파일과 학생 이름을 확인하고 있습니다...';
+  } else if (status.status === 'armed') {
+    tone = 'working';
+    message = `파일명 자동 정리 준비됨 · JANDI에서 ${attachments} 파일을 다운로드하세요.`;
+    if (status.rosterCheck === 'unavailable') {
+      message += ' 다른 Student 이름 대조는 현재 사용할 수 없습니다.';
+    }
+  } else if (status.status === 'completed') {
+    tone = 'success';
+    message = status.originalFilename === status.filename
+      ? `파일명 확인 완료 · ${status.filename}`
+      : `파일명 정리 완료 · ${status.originalFilename} → ${status.filename}`;
+    if (status.collisionSuffixApplied) {
+      message += ' 기존 파일을 보존하기 위해 번호를 붙였습니다.';
+    }
+  } else if (status.status === 'conflict') {
+    tone = 'error';
+    message = `자동 정리 중단 · 본문 학생명 ${status.studentName || requestState.studentName}과 파일명의 ${
+      (status.conflictingStudentNames ?? []).join(', ') || '다른 Student 이름'
+    }이 일치하지 않습니다.`;
+  } else if (status.status === 'timed_out') {
+    tone = 'warning';
+    message = '2분 동안 해당 SOP 다운로드를 찾지 못했습니다. 다시 Analyze한 뒤 다운로드해주세요.';
+  } else if (status.status === 'not_armed' && status.reason === 'docx_attachment_not_found') {
+    tone = 'warning';
+    message = '이 JANDI 메시지에서 .docx 첨부파일 이름을 찾지 못해 자동 정리를 준비하지 않았습니다.';
+  } else if (status.status === 'not_armed') {
+    tone = 'warning';
+    message = '학생 이름을 확인한 뒤 파일명 자동 정리를 다시 준비해주세요.';
+  } else if (status.status === 'error') {
+    tone = 'error';
+    message = status.reason === 'downloads_directory_unavailable'
+      ? '다운로드 폴더를 찾지 못했습니다. JANDI_DOWNLOAD_DIR 설정을 확인해주세요.'
+      : `파일명 자동 정리를 시작하지 못했습니다${status.message ? `: ${status.message}` : '.'}`;
+  }
+
+  elements.sopDownloadStatus.dataset.tone = tone;
+  elements.sopDownloadStatus.textContent = message;
 }
 
 function updateProgrammeField(event) {

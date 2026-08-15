@@ -199,6 +199,41 @@ input:focus {
   padding: 14px;
 }
 
+.sop-download-status {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin-top: 16px;
+  padding: 11px 12px;
+}
+
+.sop-download-status[data-tone="working"] {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.sop-download-status[data-tone="success"] {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.sop-download-status[data-tone="warning"] {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.sop-download-status[data-tone="error"] {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
 .sop-major-selection p {
   margin: 0;
 }

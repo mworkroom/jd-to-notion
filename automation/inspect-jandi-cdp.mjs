@@ -2,6 +2,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { restoreLinkedUrls } from './jandi-message-text.mjs';
+import { extractDocxAttachmentNames } from '../src/shared/sopFilename.js';
 
 const endpoint = process.argv.find((argument) => argument.startsWith('http')) ?? 'http://127.0.0.1:9222';
 const extractMode = process.argv.includes('--extract');
@@ -27,7 +28,15 @@ const expression = extractMode
       const links = [...(body?.querySelectorAll('a[href]') ?? [])]
         .map((link) => ({ href: link.href, text: link.innerText ?? link.textContent ?? '' }));
       const text = restoreLinkedUrls(body?.innerText ?? '', links);
-      return [writer, date, text].filter(Boolean).join('\\n');
+      const attachmentText = [...card.querySelectorAll('a, button, [role="button"], [class*="file"], [class*="attach"]')]
+        .flatMap((element) => String(element.innerText ?? element.textContent ?? '').split(/\\r?\\n/))
+        .map((line) => line.trim())
+        .filter((line) => /\\.docx(?:\\s|$)/i.test(line))
+        .join('\\n');
+      return {
+        message: [writer, date, text].filter(Boolean).join('\\n'),
+        attachmentText
+      };
     })()`
   : `(() => {
     const className = (element) => typeof element.className === 'string' ? element.className : '';
@@ -101,9 +110,19 @@ const result = await client.call('Runtime.evaluate', {
 
 const value = result.result?.result?.value;
 if (extractMode) {
-  if (!value) process.exitCode = 2;
-  else if (outputPath) writeFileSync(outputPath, value, 'utf8');
-  else console.log(value);
+  const extractedMessage = typeof value === 'string' ? value : value?.message ?? '';
+  const attachmentNames = extractDocxAttachmentNames([
+    extractedMessage,
+    typeof value === 'object' ? value?.attachmentText : ''
+  ].filter(Boolean).join('\n'));
+  const completeMessage = [
+    extractedMessage,
+    ...attachmentNames.filter((filename) => !extractedMessage.includes(filename))
+  ].filter(Boolean).join('\n');
+
+  if (!completeMessage) process.exitCode = 2;
+  else if (outputPath) writeFileSync(outputPath, completeMessage, 'utf8');
+  else console.log(completeMessage);
 } else {
   console.log(JSON.stringify(value ?? result, null, 2));
 }

@@ -86,6 +86,27 @@ test('student repository uses strict same-name family matching and resolves Agen
   assert.equal(preview.proposedAction, 'create');
 });
 
+test('student repository confirms only exact registered base-name families for filename conflicts', async () => {
+  const client = makeClient({
+    data: {
+      [dataSourceIds.students]: [
+        studentPage('student-1', '김철수 B', ['agent-1']),
+        studentPage('student-2', '김철수 상담', ['agent-1']),
+        studentPage('student-3', '오지석', ['agent-1'])
+      ]
+    }
+  });
+  const studentsRepository = createStudentsRepository({
+    client,
+    dataSourceId: dataSourceIds.students
+  });
+
+  assert.deepEqual(
+    await studentsRepository.findKnownBaseNames(['김철수', '미등록', '오지석']),
+    ['김철수', '오지석']
+  );
+});
+
 test('student repository preselects an existing unique candidate', async () => {
   const client = makeClient({
     data: {

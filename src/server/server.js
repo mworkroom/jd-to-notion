@@ -8,6 +8,7 @@ import { safeErrorPayload } from './notion/errors.js';
 import { createDefaultNotionCreationService } from './notion/notionCreationService.js';
 import { createDefaultNotionPreviewService } from './notion/notionPreviewService.js';
 import { checkNotionSchema } from './notion/schema.js';
+import { createDefaultSopDownloadService } from './sop/sopDownloadService.js';
 import { safeWordError } from './word/errors.js';
 import { createDefaultWordGenerationService } from './word/wordGenerationService.js';
 
@@ -23,8 +24,9 @@ export function createAppServer(options = {}) {
     ?? process.env.NOTION_CREATION_ENABLED !== 'false';
   let notionCreationService = options.notionCreationService ?? null;
   let wordGenerationService = options.wordGenerationService ?? null;
+  let sopDownloadService = options.sopDownloadService ?? null;
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? '/', `http://${HOST}:${PORT}`);
 
@@ -71,6 +73,36 @@ export function createAppServer(options = {}) {
         return;
       }
 
+      if (request.method === 'POST' && requestUrl.pathname === '/api/sop-download/arm') {
+        sopDownloadService ??= createDefaultSopDownloadService({
+          downloadsDirectory: options.downloadsDirectory,
+          notionClient: options.notionClient,
+          notionConfig: options.notionConfig,
+          timeoutMs: options.sopDownloadTimeoutMs,
+          pollIntervalMs: options.sopDownloadPollIntervalMs,
+          stablePollCount: options.sopDownloadStablePollCount
+        });
+        await handleSopDownloadArm(request, response, sopDownloadService);
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/sop-download/status') {
+        const status = sopDownloadService?.getStatus(requestUrl.searchParams.get('id') ?? '');
+        sendJson(response, status ? 200 : 404, status ?? {
+          status: 'not_found',
+          reason: 'download_context_not_found'
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/api/sop-download/cancel') {
+        sendJson(response, 200, sopDownloadService?.cancel() ?? {
+          status: 'cancelled',
+          reason: 'no_active_download_context'
+        });
+        return;
+      }
+
       if (request.method === 'GET' && requestUrl.pathname === '/api/word/status') {
         wordGenerationService ??= createDefaultWordGenerationService({
           config: options.wordConfig
@@ -97,6 +129,9 @@ export function createAppServer(options = {}) {
       sendJson(response, 500, { error: error.message });
     }
   });
+
+  server.on('close', () => sopDownloadService?.cancel());
+  return server;
 }
 
 export function startServer({ host = HOST, port = PORT } = {}) {
@@ -192,6 +227,12 @@ async function handleNotionCreate(request, response, service) {
   } catch (error) {
     sendNotionError(response, error);
   }
+}
+
+async function handleSopDownloadArm(request, response, service) {
+  const payload = await readJsonRequest(request);
+  const result = await service.arm(payload);
+  sendJson(response, 200, result);
 }
 
 async function handleWordStatus(response, service) {

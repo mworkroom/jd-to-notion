@@ -66,6 +66,19 @@ export function createStudentsRepository({ client, dataSourceId, agentsRepositor
       };
     },
 
+    async findKnownBaseNames(baseNames = []) {
+      const uniqueBaseNames = [...new Set(baseNames.map(normalizeWhitespace).filter(Boolean))];
+      const matches = await Promise.all(uniqueBaseNames.map(async (baseName) => {
+        const pages = await queryStudentsByTitle(client, dataSourceId, baseName);
+        const familyPattern = new RegExp(`^${escapeRegExp(baseName)}(?: [A-Z]+)?$`);
+        return pages.some((page) => familyPattern.test(
+          normalizeWhitespace(readTitleProperty(page, NOTION_PROPERTY_NAMES.students.name))
+        )) ? baseName : null;
+      }));
+
+      return matches.filter(Boolean);
+    },
+
     async getById(pageId) {
       try {
         const page = await client.pages.retrieve({ page_id: pageId });
