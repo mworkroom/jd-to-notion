@@ -4,6 +4,7 @@ SetTitleMatchMode(2)
 
 ; Macro keyboard shortcut: Ctrl + Alt + Shift + F12.
 ; The app's internal focus shortcut is intentionally different: Ctrl + Alt + Shift + F11.
+; Google Sheets sync shortcut: Ctrl + Alt + Shift + F10.
 ; DOM extraction runs first; manual ⋯ -> Copy remains the fallback.
 
 appWindowTitle := "JD to Notion"
@@ -12,6 +13,12 @@ jdToNotionRoot := EnvGet("USERPROFILE") "\Documents\Projects\jd-to-notion"
 ^!+F12::
 {
     global appWindowTitle
+
+    ToolTip("JD to Notion 서버를 확인하는 중입니다.")
+    if !EnsureJdToNotionRunning() {
+        ToolTip()
+        return
+    }
 
     ToolTip("JANDI 메시지를 읽는 중입니다.")
     importedMessage := TryExtractHoveredMessage()
@@ -35,6 +42,48 @@ jdToNotionRoot := EnvGet("USERPROFILE") "\Documents\Projects\jd-to-notion"
 
     ToolTip()
     ActivateAppAndPaste()
+}
+
+^!+F10::
+{
+    global jdToNotionRoot
+    scriptPath := jdToNotionRoot "\scripts\sync-google-sheets.ps1"
+    Run('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' scriptPath '"', , "Hide")
+}
+
+EnsureJdToNotionRunning()
+{
+    global jdToNotionRoot
+
+    powershellPath := EnvGet("SystemRoot") "\System32\WindowsPowerShell\v1.0\powershell.exe"
+    launcherPath := jdToNotionRoot "\scripts\start-local-app.ps1"
+    quote := Chr(34)
+    command := quote . powershellPath . quote
+        . " -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "
+        . quote . launcherPath . quote
+        . " -NoBrowser -NoDialogs -EnsureRunning"
+
+    try {
+        exitCode := RunWait(command, , "Hide")
+    } catch as error {
+        MsgBox(
+            "JD to Notion 서버를 시작하지 못했습니다.`n`n" . error.Message,
+            "JANDI 가져오기",
+            "Icon!"
+        )
+        return false
+    }
+
+    if exitCode != 0 {
+        MsgBox(
+            "JD to Notion 서버를 시작하지 못했습니다. 앱 실행 로그를 확인해주세요.",
+            "JANDI 가져오기",
+            "Icon!"
+        )
+        return false
+    }
+
+    return true
 }
 
 TryExtractHoveredMessage()

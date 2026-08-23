@@ -16,6 +16,7 @@ export const NOTION_PROPERTY_NAMES = Object.freeze({
     students: 'Students',
     major: 'Major',
     category: 'Category',
+    hours: 'Hours',
     deadline: '마감일',
     requestSeason: '요청 시즌'
   }),
@@ -45,6 +46,7 @@ export const REQUIRED_NOTION_SCHEMAS = Object.freeze({
       type: 'select',
       options: ['입학 요강', 'SOP 감수(영문)', 'SOP 감수(국문)']
     },
+    { name: NOTION_PROPERTY_NAMES.workLog.hours, type: 'number' },
     { name: NOTION_PROPERTY_NAMES.workLog.deadline, type: 'date' },
     {
       name: NOTION_PROPERTY_NAMES.workLog.requestSeason,

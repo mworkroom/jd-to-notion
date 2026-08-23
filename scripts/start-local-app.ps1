@@ -1,6 +1,7 @@
 param(
   [switch]$NoBrowser,
   [switch]$NoDialogs,
+  [switch]$EnsureRunning,
   [int]$Port = 3000
 )
 
@@ -89,6 +90,10 @@ function Stop-RecordedLocalServer {
 $initialStatus = Get-LocalAppStatus
 
 if ($initialStatus -eq 'ready') {
+  if ($EnsureRunning) {
+    exit 0
+  }
+
   if (-not (Stop-RecordedLocalServer)) {
     Open-LocalApp
     exit 0

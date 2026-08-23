@@ -172,6 +172,121 @@ input:focus {
   padding: 5px 10px;
 }
 
+.google-sheets-section {
+  border-color: #b7d2c3;
+  box-shadow: 0 8px 24px rgba(21, 115, 71, 0.07);
+}
+
+.google-sheets-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.google-sheets-heading .section-heading {
+  margin-bottom: 0;
+}
+
+.google-sheets-heading h2 {
+  margin: 0;
+}
+
+.google-sheets-mark {
+  background: #e4f4ea;
+  color: var(--success);
+}
+
+.google-sheets-facts {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 18px 0 0;
+}
+
+.google-sheets-facts div {
+  background: #f7fbf8;
+  border: 1px solid #d6e7dd;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 11px 13px;
+}
+
+.google-sheets-facts dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.google-sheets-facts dd {
+  font-weight: 700;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.google-sheets-status {
+  margin: 14px 0 0;
+}
+
+.google-sheets-preview {
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.google-sheets-preview-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.google-sheets-preview-row {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.google-sheets-preview-row p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 4px 0 0;
+}
+
+.google-sheets-row-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.google-sheets-row-heading span {
+  color: var(--success);
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.google-sheets-programmes {
+  white-space: pre-line;
+}
+
+.google-sheets-held {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-line);
+  border-radius: 8px;
+  color: var(--warning);
+  margin-top: 10px;
+  padding: 12px 14px;
+}
+
+.google-sheets-held ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.google-sheets-actions {
+  margin-top: 14px;
+}
+
 .sop-review-block {
   border-top: 1px solid var(--line);
   margin-top: 18px;
@@ -731,6 +846,12 @@ label textarea {
   color: var(--success);
 }
 
+.readiness-badge--error {
+  background: var(--danger-bg);
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+
 .plan-facts {
   display: grid;
   gap: 10px;
@@ -915,12 +1036,14 @@ label textarea {
   .programme-fields,
   .derived-fields,
   .sop-control-grid,
-  .plan-facts {
+  .plan-facts,
+  .google-sheets-facts {
     grid-template-columns: 1fr;
   }
 
   .creation-plan-heading,
-  .word-summary-heading {
+  .word-summary-heading,
+  .google-sheets-heading {
     align-items: stretch;
     flex-direction: column;
   }

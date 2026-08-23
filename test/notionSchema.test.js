@@ -25,6 +25,7 @@ test('schema validation accepts the required exact schema', () => {
 test('schema constants use the documented live relation property names', () => {
   assert.equal(NOTION_PROPERTY_NAMES.students.agentRelation, 'Agent');
   assert.equal(NOTION_PROPERTY_NAMES.majors.universityRelation, 'University');
+  assert.equal(NOTION_PROPERTY_NAMES.workLog.hours, 'Hours');
 });
 
 test('schema validation reports missing properties', () => {

@@ -11,7 +11,8 @@
   "dependencies": {
     "@notionhq/client": "latest",
     "adm-zip": "^0.6.0",
-    "dotenv": "latest"
+    "dotenv": "latest",
+    "googleapis": "^176.0.0"
   },
   "engines": {
     "node": ">=20"

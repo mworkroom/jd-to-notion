@@ -22,6 +22,11 @@ Implemented:
 - One-click filename copy button
 - Template-preserving Word generation with independent status and create endpoints
 - Streamlined Notion preflight and one-click Word generation
+- Read-only Google Sheets service-account connection and monthly-tab structure check
+- Read-only Google Sheets preview for new Notion Work Logs, relation resolution, Hours totals, and admissions grouping
+- Atomic test-sheet sync with hidden Page ID history, explicit confirmation, and duplicate prevention
+- Always-visible Google Sheets status, preview, held-item summary, and confirmed sync panel
+- Ctrl + Alt + Shift + F10 macro sync with server startup check and Windows result notification
 - SHA-256 template validation, non-overwriting numbered saves, and atomic publication
 - Automatic Desktop work-folder creation using `학생명_Programme Label`
 - Automated tests for extraction, matching, creation, recovery, Word OOXML preservation, and endpoint gates
@@ -68,6 +73,12 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
    WORD_TEMPLATE_PATH=C:\Users\Marion\Documents\Custom Office Templates\[2026입학요강] 자동생성용.docx
    WORD_TEMPLATE_SHA256=
    WORD_OUTPUT_DIR=C:\Users\Marion\Desktop
+   GOOGLE_SHEETS_ENABLED=false
+   GOOGLE_SHEETS_WRITE_ENABLED=false
+   GOOGLE_SPREADSHEET_ID=
+   GOOGLE_SERVICE_ACCOUNT_KEY_PATH=
+   GOOGLE_SYNC_START_AT=
+   GOOGLE_SYNC_LOG_SHEET_NAME=_JD_SYNC
    ```
 
    Extraction and filename generation still work when the Notion values are blank. Set `NOTION_CREATION_ENABLED=false` to disable all create requests at the server.
@@ -92,6 +103,52 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
    ```
 
 The server binds to `127.0.0.1` only.
+
+## Google Sheets Read-only Setup
+
+Phase G1 only reads spreadsheet metadata and the calculated monthly tab's `C4:G4` headers. It cannot add or change cells because the Google client uses the `spreadsheets.readonly` scope.
+
+1. Enable Google Sheets API in the service account's Google Cloud project.
+2. Share the test spreadsheet with the service account email.
+3. Keep the JSON key outside the repository and set its absolute path in `GOOGLE_SERVICE_ACCOUNT_KEY_PATH`.
+4. Set the test spreadsheet ID in `GOOGLE_SPREADSHEET_ID` and set `GOOGLE_SHEETS_ENABLED=true`.
+5. Restart the server and request:
+
+   ```text
+   GET http://127.0.0.1:3000/api/google-sheets/status
+   ```
+
+The endpoint calculates the target tab in `Asia/Seoul`: days 1–19 use the current month and day 20 onward uses the next month. It reports `ready: false` without writing anything when the tab is missing or when `C4:G4` differs from the expected headers.
+
+Phase G2 also exposes a read-only preview:
+
+```text
+POST http://127.0.0.1:3000/api/google-sheets/preview
+```
+
+Set `GOOGLE_SYNC_START_AT` to an ISO timestamp with an explicit offset before using the preview. The server queries every Work Log created on or after that cutoff, excludes Page IDs already recorded in `_JD_SYNC` when that tab exists, resolves Student → Agent and Major → University with an in-memory page cache, and returns planned C:G rows. Admissions logs that are still unsynced in the same run are grouped by target sheet, Agent, Student, and category; `Hours=0` is valid and missing Hours holds the complete admissions group. This endpoint does not write to Notion or Google Sheets.
+
+Phase G3 adds a separately gated write endpoint:
+
+```text
+POST http://127.0.0.1:3000/api/google-sheets/sync
+```
+
+Set `GOOGLE_SHEETS_WRITE_ENABLED=true` only for an approved write environment. Every request must also contain `confirm: true`. Controlled mode accepts only `outputGroupKeys` from a fresh preview; the server recomputes all row values and never accepts C:G values from the browser. `all` mode writes every currently valid unsynced preview row.
+
+```json
+{
+  "mode": "controlled",
+  "confirm": true,
+  "outputGroupKeys": ["preview-output-group-key"]
+}
+```
+
+The write client alone uses the `spreadsheets` scope. Status and preview clients remain read-only. Target C:G rows and `_JD_SYNC` history rows are submitted in one atomic `spreadsheets.batchUpdate`; A:B are outside every write range. A lost response is recovered by checking Page IDs in `_JD_SYNC` before retrying.
+
+Phase G4 exposes the same guarded flow in the app's top Google Sheets panel. Opening the app performs a read-only status and preview refresh. The panel shows the calculated monthly tab, unsynced Work Logs, planned output rows, last sync time, C:G values, and held reasons. The write button is enabled only when the target is ready, the write gate is on, and at least one preview row exists. It sends only the currently previewed output-group keys in `controlled` mode and asks for confirmation before writing.
+
+The macro path uses the same sync service in `all` mode. The actively used `EDM.ahk` maps `Ctrl + Alt + Shift + F10`; `automation/jandi-to-admissions.ahk` keeps the same block as a backup/reference. The shortcut calls `scripts/sync-google-sheets.ps1`, starts the local server only when needed, blocks concurrent sync through the server lock, and shows a Windows notification for success, no new Work Logs, held Work Logs that need correction, a missing monthly tab, or an error. Local execution details are written to the ignored `.local/google-sheets-sync.log` file.
 
 ## Word Generation Setup
 
@@ -197,8 +254,12 @@ The live workspace uses `Agent` on Students, `University` on Majors, and exact W
 
 The browser app accepts an automated JANDI import without requiring text selection:
 
-1. Start the local app with `npm start` and open `http://127.0.0.1:3000`.
-2. Open `automation/jandi-to-admissions.ahk` with AutoHotkey v2.
+1. Let the Windows Startup shortcut launch the actively used `EDM.ahk`, or open
+   `automation/jandi-to-admissions.ahk` with AutoHotkey v2 when testing the
+   standalone backup.
+2. The local app server does not need to be started first. Pressing the F12
+   macro runs the shared launcher in ensure-running mode, reuses a healthy
+   server, or starts it in the background and waits until it is ready.
 3. Configure the macro-keyboard key to send `Ctrl + Alt + Shift + F12`.
 4. In JANDI, place the mouse over the target message and press the macro key.
 5. The script first reads the hovered message from JANDI's Electron renderer through the local DevTools port, then activates the app, focuses the JANDI input, and pastes the sender, date, body, and links.

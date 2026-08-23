@@ -4,6 +4,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mockExtractJandiMessage, validateExtraction } from './extraction/mockExtractor.js';
+import { safeGoogleSheetsError } from './googleSheets/errors.js';
+import { createDefaultGoogleSheetsPreviewService } from './googleSheets/googleSheetsPreviewService.js';
+import { createDefaultGoogleSheetsStatusService } from './googleSheets/googleSheetsStatusService.js';
+import { createDefaultGoogleSheetsSyncService } from './googleSheets/googleSheetsSyncService.js';
 import { safeErrorPayload } from './notion/errors.js';
 import { createDefaultNotionCreationService } from './notion/notionCreationService.js';
 import { createDefaultNotionPreviewService } from './notion/notionPreviewService.js';
@@ -23,6 +27,9 @@ export function createAppServer(options = {}) {
   const notionCreationEnabled = options.notionCreationEnabled
     ?? process.env.NOTION_CREATION_ENABLED !== 'false';
   let notionCreationService = options.notionCreationService ?? null;
+  let googleSheetsStatusService = options.googleSheetsStatusService ?? null;
+  let googleSheetsPreviewService = options.googleSheetsPreviewService ?? null;
+  let googleSheetsSyncService = options.googleSheetsSyncService ?? null;
   let wordGenerationService = options.wordGenerationService ?? null;
   let sopDownloadService = options.sopDownloadService ?? null;
 
@@ -37,6 +44,41 @@ export function createAppServer(options = {}) {
 
       if (request.method === 'GET' && requestUrl.pathname === '/api/notion/schema') {
         await handleNotionSchema(response, options, notionCreationEnabled);
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/google-sheets/status') {
+        googleSheetsStatusService ??= createDefaultGoogleSheetsStatusService({
+          client: options.googleSheetsClient,
+          config: options.googleSheetsConfig,
+          now: options.now
+        });
+        await handleGoogleSheetsStatus(response, googleSheetsStatusService);
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/api/google-sheets/preview') {
+        googleSheetsPreviewService ??= createDefaultGoogleSheetsPreviewService({
+          googleClient: options.googleSheetsClient,
+          googleConfig: options.googleSheetsConfig,
+          notionClient: options.notionClient,
+          notionConfig: options.notionConfig,
+          statusService: options.googleSheetsStatusService,
+          now: options.now
+        });
+        await handleGoogleSheetsPreview(response, googleSheetsPreviewService);
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/api/google-sheets/sync') {
+        googleSheetsSyncService ??= createDefaultGoogleSheetsSyncService({
+          googleConfig: options.googleSheetsConfig,
+          writeClient: options.googleSheetsWriteClient,
+          previewService: options.googleSheetsPreviewService,
+          now: options.now,
+          writer: options.googleSheetsWriter
+        });
+        await handleGoogleSheetsSync(request, response, googleSheetsSyncService);
         return;
       }
 
@@ -181,6 +223,50 @@ async function handleNotionSchema(response, options, notionCreationEnabled) {
     });
   } catch (error) {
     const payload = safeErrorPayload(error);
+    sendJson(response, error.statusCode ?? 500, {
+      ok: false,
+      error: payload
+    });
+  }
+}
+
+async function handleGoogleSheetsStatus(response, service) {
+  try {
+    const result = await service.getStatus();
+    sendJson(response, 200, result);
+  } catch (error) {
+    const payload = safeGoogleSheetsError(error);
+    sendJson(response, error.statusCode ?? 500, {
+      ok: false,
+      error: payload
+    });
+  }
+}
+
+async function handleGoogleSheetsPreview(response, service) {
+  try {
+    const result = await service.preview();
+    sendJson(response, 200, result);
+  } catch (error) {
+    const payload = String(error?.code ?? '').startsWith('NOTION_')
+      ? safeErrorPayload(error)
+      : safeGoogleSheetsError(error);
+    sendJson(response, error.statusCode ?? 500, {
+      ok: false,
+      error: payload
+    });
+  }
+}
+
+async function handleGoogleSheetsSync(request, response, service) {
+  try {
+    const payload = await readJsonRequest(request);
+    const result = await service.sync(payload);
+    sendJson(response, 200, result);
+  } catch (error) {
+    const payload = String(error?.code ?? '').startsWith('NOTION_')
+      ? safeErrorPayload(error)
+      : safeGoogleSheetsError(error);
     sendJson(response, error.statusCode ?? 500, {
       ok: false,
       error: payload

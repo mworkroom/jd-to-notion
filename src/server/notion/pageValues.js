@@ -31,6 +31,13 @@ export function readSelectName(page, propertyName) {
   return property?.select?.name ?? '';
 }
 
+export function readNumberProperty(page, propertyName) {
+  const property = page?.properties?.[propertyName];
+  return property?.type === 'number' && typeof property.number === 'number'
+    ? property.number
+    : null;
+}
+
 export function readRollupText(page, propertyName) {
   const property = page?.properties?.[propertyName];
   const rollup = property?.rollup;

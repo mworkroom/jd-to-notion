@@ -16,6 +16,55 @@
         <p class="host-note">Server: 127.0.0.1</p>
       </header>
 
+      <section id="google-sheets-section" class="section google-sheets-section" aria-labelledby="google-sheets-title">
+        <div class="google-sheets-heading">
+          <div class="section-heading">
+            <span class="step google-sheets-mark">G</span>
+            <div>
+              <p class="eyebrow">Notion Work Log 정산</p>
+              <h2 id="google-sheets-title">Google Sheets</h2>
+            </div>
+          </div>
+          <span id="google-sheets-readiness" class="readiness-badge">연결 확인 중</span>
+        </div>
+
+        <dl class="google-sheets-facts">
+          <div>
+            <dt>대상 탭</dt>
+            <dd id="google-sheets-target">확인 중</dd>
+          </div>
+          <div>
+            <dt>미전송</dt>
+            <dd id="google-sheets-unsynced">—</dd>
+          </div>
+          <div>
+            <dt>전송 예정</dt>
+            <dd id="google-sheets-output-rows">—</dd>
+          </div>
+          <div>
+            <dt>마지막 동기화</dt>
+            <dd id="google-sheets-last-synced">확인 전</dd>
+          </div>
+        </dl>
+
+        <p id="google-sheets-status" class="status google-sheets-status" role="status" aria-live="polite">
+          Google Sheets와 Notion의 미전송 항목을 확인하고 있습니다.
+        </p>
+
+        <div id="google-sheets-preview" class="google-sheets-preview hidden" aria-live="polite">
+          <div id="google-sheets-preview-rows" class="google-sheets-preview-rows"></div>
+          <div id="google-sheets-held" class="google-sheets-held hidden"></div>
+        </div>
+
+        <div id="google-sheets-result" class="creation-result hidden" role="status" aria-live="polite"></div>
+
+        <div class="button-row google-sheets-actions">
+          <button id="refresh-google-sheets-button" type="button" class="secondary">미전송 항목 다시 확인</button>
+          <button id="sync-google-sheets-button" type="button" disabled>Google Sheets 동기화</button>
+        </div>
+        <p class="input-hint">매크로 키: Ctrl + Alt + Shift + F10 · 미리보기된 C:G만 기록하며 A:B는 건드리지 않습니다.</p>
+      </section>
+
       <section class="section">
         <div class="section-heading">
           <span class="step">A</span>
