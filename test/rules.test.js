@@ -47,6 +47,22 @@ test('getProposedMajorName moves recognized leading and parenthesized degree lab
   );
 });
 
+test('major normalization removes in only when it connects a leading degree label', () => {
+  const durhamSource = 'MA in International Cultural Heritage Management';
+  const existingMajor = 'International Cultural Heritage Management';
+
+  assert.equal(getMajorSearchKey(durhamSource), getMajorSearchKey(existingMajor));
+  assert.equal(
+    getProposedMajorName(durhamSource),
+    'International Cultural Heritage Management MA'
+  );
+  assert.equal(getMajorSearchKey('MSc in Management'), 'management');
+  assert.equal(getProposedMajorName('MSc in Management'), 'Management MSc');
+
+  assert.equal(getMajorSearchKey('Childhood in Society (MA)'), 'childhood in society');
+  assert.equal(getProposedMajorName('Childhood in Society (MA)'), 'Childhood in Society MA');
+});
+
 test('major normalization treats standalone MCs variants as MSc while preserving the subject', () => {
   const expectedKey = 'advanced materials science and engineering';
   const variants = [

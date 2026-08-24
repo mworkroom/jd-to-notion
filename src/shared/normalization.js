@@ -36,7 +36,7 @@ export function splitProgrammeName(programmeName) {
   const atStart = normalized.match(new RegExp(`^(${DEGREE_PATTERN})\\b\\s+(.+)$`, 'i'));
   if (atStart) {
     return {
-      subject: normalizeWhitespace(atStart[2]),
+      subject: removeLeadingDegreeConnector(atStart[2]),
       degreeLabel: canonicalDegreeLabel(atStart[1]),
       degreePosition: 'start',
       ambiguous
@@ -73,6 +73,12 @@ export function splitProgrammeName(programmeName) {
 
 function normalizeProgrammeNameForMatching(value) {
   return normalizeWhitespace(value).replace(/\s*\([^)]*[\p{Script=Hangul}][^)]*\)/gu, '');
+}
+
+function removeLeadingDegreeConnector(value) {
+  // In forms such as "MA in History", "in" connects the degree to the subject.
+  // Keep "in" when it belongs inside the subject, as in "Childhood in Society MA".
+  return normalizeWhitespace(value).replace(/^in\s+/i, '');
 }
 
 export function getMajorSearchKey(programmeName) {
