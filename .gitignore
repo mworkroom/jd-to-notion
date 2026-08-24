@@ -8,6 +8,8 @@ node_modules/
 *.code-workspace
 dist/
 coverage/
+playwright-report/
+test-results/
 *.log
 .local/
 .DS_Store

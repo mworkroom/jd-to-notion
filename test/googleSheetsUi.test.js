@@ -5,14 +5,16 @@ import { readFile } from 'node:fs/promises';
 const files = {
   html: new URL('../public/index.html', import.meta.url),
   app: new URL('../public/app.js', import.meta.url),
+  googleSheetsPanel: new URL('../public/googleSheetsPanel.js', import.meta.url),
   macro: new URL('../scripts/sync-google-sheets.ps1', import.meta.url),
   ahk: new URL('../automation/jandi-to-admissions.ahk', import.meta.url)
 };
 
 test('Google Sheets panel exposes preview, result, refresh, and guarded sync controls', async () => {
-  const [html, app] = await Promise.all([
+  const [html, app, googleSheetsPanel] = await Promise.all([
     readFile(files.html, 'utf8'),
-    readFile(files.app, 'utf8')
+    readFile(files.app, 'utf8'),
+    readFile(files.googleSheetsPanel, 'utf8')
   ]);
 
   for (const id of [
@@ -27,12 +29,16 @@ test('Google Sheets panel exposes preview, result, refresh, and guarded sync con
     assert.match(html, new RegExp(`id="${id}"`));
   }
 
-  assert.match(app, /refreshGoogleSheetsPanel\(\);/u);
-  assert.match(app, /mode: 'controlled'/u);
-  assert.match(app, /confirm: true/u);
-  assert.match(app, /outputGroupKeys: rows\.map/u);
-  assert.match(app, /googleSheetsBusy/u);
-  assert.match(app, /C:G만 기록하며 A:B는 변경하지 않습니다/u);
+  assert.match(app, /from '\.\/googleSheetsPanel\.js'/u);
+  assert.match(app, /initializeGoogleSheetsPanel\(\);/u);
+  assert.doesNotMatch(app, /googleSheetsStatusState|refreshGoogleSheetsPanel/u);
+  assert.match(googleSheetsPanel, /export function initializeGoogleSheetsPanel/u);
+  assert.match(googleSheetsPanel, /void refreshGoogleSheetsPanel\(\);/u);
+  assert.match(googleSheetsPanel, /mode: 'controlled'/u);
+  assert.match(googleSheetsPanel, /confirm: true/u);
+  assert.match(googleSheetsPanel, /outputGroupKeys: rows\.map/u);
+  assert.match(googleSheetsPanel, /googleSheetsBusy/u);
+  assert.match(googleSheetsPanel, /C:G만 기록하며 A:B는 변경하지 않습니다/u);
 });
 
 test('macro shortcut ensures the local server and invokes the same all-mode sync safely', async () => {

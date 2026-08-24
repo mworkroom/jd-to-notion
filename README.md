@@ -229,6 +229,44 @@ POST /api/notion/create
 Notion SDK calls are isolated under `src/server/notion/`. The repositories use cursor pagination and automated tests use fake Notion clients. Creation is create-only except for the title-only finalization of Work Logs created by the same request. No archive or delete API is used.
 
 The live workspace uses `Agent` on Students, `University` on Majors, and exact Work Log Category option `입학 요강`.
+
+## Frontend Module Map
+
+`public/app.js` is the browser workflow composition root. It owns the current
+request and client mode, connects the feature panels, and coordinates derived
+output when one panel changes shared workflow state.
+
+- `requestReviewPanel.js`: request normalization, validation, and editable request review
+- `notionPreviewController.js`: read-only Notion preview requests and stale-response protection
+- `notionPreviewPanel.js`: Notion preview cards, selections, and reviewed Major names
+- `notionCreationPanel.js`: schema preflight, creation gates, confirmation, and Notion create requests
+- `wordPanel.js`: Word readiness, filename/summary rendering, and generation requests
+- `sopDownloadPanel.js`: SOP attachment watcher lifecycle and polling
+- `googleSheetsPanel.js`: Google Sheets status, preview, confirmation, and guarded sync
+
+Panels own their feature-specific DOM, state, and API calls. They read shared
+workflow values through small context callbacks and report changes back to
+`app.js`; they do not call one another directly. Further extraction from
+`app.js` should be reserved for a responsibility that gains independent state
+or I/O. Moving the remaining orchestration-only calculations would add
+callbacks without creating a clearer ownership boundary.
+
+## Browser Regression Tests
+
+Run the isolated browser smoke tests with Microsoft Edge:
+
+```powershell
+npm run test:browser
+```
+
+The Playwright suite starts a temporary local server on `127.0.0.1:3210` and
+intercepts every `/api/*` request with test fixtures. It does not read from or
+write to the live Notion workspace, Google Spreadsheet, download folder, or
+Word output directory. The same Google Sheets and JANDI-to-Notion review flows
+run at desktop `1280×900` and mobile `390×844` viewports. Screenshots, traces,
+and other failure artifacts are stored in the Windows temporary directory, not
+inside the repository.
+
 ## Local Test Steps
 
 1. Paste one complete JANDI message into the textarea.
