@@ -3,6 +3,11 @@ import crypto from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { restoreLinkedUrls } from './jandi-message-text.mjs';
 import { extractDocxAttachmentNames } from '../src/shared/sopFilename.js';
+import {
+  JANDI_COMMENT_MARKER,
+  JANDI_PARENT_MARKER,
+  formatJandiCommentMessage
+} from '../src/shared/jandiMessageContext.js';
 
 const endpoint = process.argv.find((argument) => argument.startsWith('http')) ?? 'http://127.0.0.1:9222';
 const extractMode = process.argv.includes('--extract');
@@ -16,26 +21,53 @@ if (!target) {
 
 const client = await connectWebSocket(target.webSocketDebuggerUrl);
 const restoreLinkedUrlsSource = restoreLinkedUrls.toString();
+const formatJandiCommentMessageSource = formatJandiCommentMessage.toString();
 const expression = extractMode
   ? `(() => {
       const restoreLinkedUrls = ${restoreLinkedUrlsSource};
+      const JANDI_COMMENT_MARKER = ${JSON.stringify(JANDI_COMMENT_MARKER)};
+      const JANDI_PARENT_MARKER = ${JSON.stringify(JANDI_PARENT_MARKER)};
+      const formatJandiCommentMessage = ${formatJandiCommentMessageSource};
+      const hovered = (element) => element.matches(':hover') || Boolean(element.querySelector(':hover'));
+      const readVisibleText = (element) => String(element?.innerText ?? element?.textContent ?? '').trim();
+      const readMessage = (container, bodySelector, dateSelector = '.article-date, .fn-write-time') => {
+        const writer = readVisibleText(container?.querySelector('.fn-user-name'));
+        const date = readVisibleText(container?.querySelector(dateSelector));
+        const body = container?.querySelector(bodySelector);
+        const links = [...(body?.querySelectorAll('a[href]') ?? [])]
+          .map((link) => ({ href: link.href, text: link.innerText ?? link.textContent ?? '' }));
+        const text = restoreLinkedUrls(body?.innerText ?? '', links);
+        return [writer, date, text].filter(Boolean).join('\\n');
+      };
+      const comment = [...document.querySelectorAll('.comment-item.article-comment')].find(hovered);
+      if (comment) {
+        const parent = comment.closest('.message.article._message');
+        const commentMessage = readMessage(comment, '.comment-text-box', '.fn-write-time');
+        const parentMessage = readMessage(parent, '.article-body._messageBubbleTarget');
+        const attachmentText = [...comment.querySelectorAll('a, button, [role="button"], [class*="file"], [class*="attach"]')]
+          .flatMap((element) => String(element.innerText ?? element.textContent ?? '').split(/\\r?\\n/))
+          .map((line) => line.trim())
+          .filter((line) => /\\.docx(?:\\s|$)/i.test(line))
+          .join('\\n');
+        return {
+          message: formatJandiCommentMessage({ commentMessage, parentMessage }),
+          attachmentText,
+          sourceType: 'comment'
+        };
+      }
       const cards = [...document.querySelectorAll('.message.article._message')];
-      const card = cards.find((candidate) => candidate.matches(':hover') || candidate.querySelector(':hover'));
+      const card = cards.find(hovered);
       if (!card) return null;
-      const writer = card.querySelector('.fn-user-name')?.textContent?.trim() ?? '';
-      const date = card.querySelector('.article-date, .fn-write-time')?.textContent?.trim() ?? '';
-      const body = card.querySelector('.article-body._messageBubbleTarget');
-      const links = [...(body?.querySelectorAll('a[href]') ?? [])]
-        .map((link) => ({ href: link.href, text: link.innerText ?? link.textContent ?? '' }));
-      const text = restoreLinkedUrls(body?.innerText ?? '', links);
+      const message = readMessage(card, '.article-body._messageBubbleTarget');
       const attachmentText = [...card.querySelectorAll('a, button, [role="button"], [class*="file"], [class*="attach"]')]
         .flatMap((element) => String(element.innerText ?? element.textContent ?? '').split(/\\r?\\n/))
         .map((line) => line.trim())
         .filter((line) => /\\.docx(?:\\s|$)/i.test(line))
         .join('\\n');
       return {
-        message: [writer, date, text].filter(Boolean).join('\\n'),
-        attachmentText
+        message,
+        attachmentText,
+        sourceType: 'post'
       };
     })()`
   : `(() => {
@@ -60,6 +92,8 @@ const expression = extractMode
       title: document.title,
       bodyTextLength: document.body?.innerText?.length ?? 0,
       elementCount: document.querySelectorAll('*').length,
+      commentCount: document.querySelectorAll('.comment-item.article-comment').length,
+      commentBodyCount: document.querySelectorAll('.comment-item.article-comment .comment-text-box').length,
       windowInfo: {
         screenX: window.screenX,
         screenY: window.screenY,
@@ -79,6 +113,13 @@ const expression = extractMode
         dateLength: card.querySelector('.article-date, .fn-write-time')?.textContent?.length ?? 0,
         bodyLength: card.querySelector('.article-body._messageBubbleTarget')?.innerText?.length ?? 0
       })),
+      hoveredComments: [...document.querySelectorAll('.comment-item.article-comment')]
+        .filter((comment) => comment.matches(':hover') || comment.querySelector(':hover'))
+        .map((comment) => ({
+          writerLength: comment.querySelector('.fn-user-name')?.textContent?.length ?? 0,
+          dateLength: comment.querySelector('.fn-write-time')?.textContent?.length ?? 0,
+          bodyLength: comment.querySelector('.comment-text-box')?.innerText?.length ?? 0
+        })),
       visibleMessages: [...document.querySelectorAll('.message.article._message')]
         .filter((card) => {
           const rect = card.getBoundingClientRect();

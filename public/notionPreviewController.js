@@ -144,7 +144,7 @@ export function initializeNotionPreviewController({
       }
 
       notionPreviewState = prepareState(payload);
-      onPreviewCompleted();
+      onPreviewCompleted(notionPreviewState);
       setPreviewStatus(payload.blockingIssues?.length
         ? '미리보기가 끝났습니다. 아래 확인 필요 항목을 검토해주세요.'
         : '미리보기가 끝났습니다.');

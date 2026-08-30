@@ -537,6 +537,94 @@ test('SOP 첨부파일 감시가 arm, 완료 표시, Clear 취소까지 격리�
   await expectNoHorizontalOverflow(page);
 });
 
+test('댓글 SOP의 신규 학생은 Jandi Unknown 안내와 함께 자동 전환된다', async ({ page }) => {
+  const commentExtraction = {
+    extraction: {
+      ...sopExtractionFixture.extraction,
+      sourceType: 'comment',
+      contextFallbacks: ['studentName'],
+      sopReview: { round: 2, language: '영문' }
+    },
+    errors: {}
+  };
+  const placeholder = {
+    id: 'major-placeholder',
+    name: 'Unknown',
+    url: 'https://www.notion.so/major-placeholder',
+    university: {
+      id: 'university-placeholder',
+      name: 'Jandi',
+      url: 'https://www.notion.so/university-placeholder'
+    },
+    sourceWorkLogs: []
+  };
+  const api = await installApiFixtures(page, {
+    extractionResponse: commentExtraction,
+    sopDownloadFixture: {
+      arm: { id: 'sop-context-comment', status: 'armed', attachmentNames: [], rosterCheck: 'available' },
+      status: { id: 'sop-context-comment', status: 'armed' }
+    },
+    notionPreviewResponse: {
+      ok: true,
+      requestType: 'sop_review',
+      blockingIssues: [],
+      agent: {
+        status: 'matched',
+        selected: { id: 'agent-1', name: '테스트 담당자', url: 'https://www.notion.so/agent-1' },
+        candidates: []
+      },
+      student: {
+        mode: 'new',
+        baseName: '김테스트',
+        existingFamily: [],
+        suggestedStudentName: '김테스트',
+        selectedStudentId: null,
+        proposedAction: 'create',
+        fallbackReason: 'no-agent-linked-existing-student'
+      },
+      programmes: [],
+      sopReview: {
+        candidates: [placeholder],
+        selectedMajorId: 'major-placeholder',
+        selectionReason: 'placeholder',
+        skippedWorkLogCount: 0,
+        selected: placeholder,
+        isPlaceholder: true,
+        placeholderIssue: null
+      },
+      workLog: {
+        title: 'SOP 2차 감수(영문)',
+        titles: ['SOP 2차 감수(영문)'],
+        count: 1,
+        deadline: '2026-08-27',
+        category: 'SOP 감수(영문)',
+        requestSeason: '2026/27'
+      }
+    }
+  });
+
+  await page.goto('/');
+  await page.locator('#jandi-message').fill('댓글 SOP fixture');
+  await page.getByRole('button', { name: 'Analyze' }).click();
+  await expect(page.locator('#request-type-badge')).toHaveText('SOP 감수 · 댓글');
+  await page.getByRole('button', { name: 'Notion 항목 확인' }).click();
+
+  await expect(page.locator('input[name="client-type"][value="new"]')).toBeChecked();
+  await expect(page.locator('#client-mode-note')).toContainText('Jandi · Unknown');
+  await expect(page.locator('#sop-major-selection')).toContainText('학교·학과 미확인 · Notion에서 추후 수정');
+  await expect(page.locator('#notion-preview')).toContainText('Jandi');
+  await expect(page.locator('#notion-preview')).toContainText('Unknown');
+  expect(api.notionPreviewRequests[0]).toMatchObject({
+    requestType: 'sop_review',
+    clientMode: 'existing',
+    studentName: '김테스트',
+    sopReview: { round: 2, language: '영문' }
+  });
+  expect(api.unexpectedRequests).toEqual([]);
+  expect(api.browserErrors).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+});
+
 async function installApiFixtures(page, {
   extractionResponse = extractionFixture,
   sopDownloadFixture = null,

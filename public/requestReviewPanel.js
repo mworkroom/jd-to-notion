@@ -9,6 +9,8 @@ export function createEmptyRequest() {
     studentName: '',
     programmes: [],
     extractionWarnings: [],
+    sourceType: 'post',
+    contextFallbacks: [],
     sopReview: null
   };
 }
@@ -30,6 +32,10 @@ export function normalizeRequest(extraction) {
     })),
     extractionWarnings: Array.isArray(extraction?.extractionWarnings)
       ? extraction.extractionWarnings
+      : [],
+    sourceType: extraction?.sourceType === 'comment' ? 'comment' : 'post',
+    contextFallbacks: Array.isArray(extraction?.contextFallbacks)
+      ? extraction.contextFallbacks
       : [],
     sopReview: extraction?.sopReview
       ? {
@@ -132,9 +138,10 @@ export function initializeRequestReviewPanel({
     elements.requesterName.value = requestState.requesterName;
     elements.requestDateTime.value = requestState.requestDateTime;
     elements.studentName.value = requestState.studentName;
-    elements.requestTypeBadge.textContent = requestState.requestType === SOP_REQUEST_TYPE
-      ? 'SOP 감수'
-      : '입학요강';
+    const requestTypeLabel = requestState.requestType === SOP_REQUEST_TYPE ? 'SOP 감수' : '입학요강';
+    elements.requestTypeBadge.textContent = requestState.sourceType === 'comment'
+      ? `${requestTypeLabel} · 댓글`
+      : requestTypeLabel;
     elements.programmeReviewBlock.classList.toggle('hidden', requestState.requestType === SOP_REQUEST_TYPE);
     elements.sopReviewBlock.classList.toggle('hidden', requestState.requestType !== SOP_REQUEST_TYPE);
     renderSopControls(requestState);

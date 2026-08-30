@@ -13,7 +13,10 @@ import { createNotionClient } from './client.js';
 import { getNotionConfig } from './config.js';
 import { NotionAppError } from './errors.js';
 import { createNotionRepositories } from './repositories/index.js';
-import { buildSopMajorCandidatePreview } from './sopMajorCandidates.js';
+import {
+  buildSopMajorCandidatePreview,
+  buildSopPlaceholderMajorPreview
+} from './sopMajorCandidates.js';
 import {
   ADMISSIONS_REQUEST_TYPE,
   SOP_LANGUAGES,
@@ -49,11 +52,16 @@ export function createNotionPreviewService({ repositories }) {
         matchedAgentId
       });
       if (request.requestType === SOP_REQUEST_TYPE) {
-        const sopReview = await buildSopMajorCandidatePreview({
-          repositories,
-          studentId: student.selectedStudentId,
-          selectedMajorId: request.selectedMajorId
-        });
+        const sopReview = student.mode === 'new'
+          ? await buildSopPlaceholderMajorPreview({
+              repositories,
+              selectedMajorId: request.selectedMajorId
+            })
+          : await buildSopMajorCandidatePreview({
+              repositories,
+              studentId: student.selectedStudentId,
+              selectedMajorId: request.selectedMajorId
+            });
         const workLog = buildSopWorkLogPreview(request);
         const blockingIssues = collectSopBlockingIssues({ agent, student, sopReview });
 
@@ -69,7 +77,9 @@ export function createNotionPreviewService({ repositories }) {
           phase3Plan: {
             canCreate: false,
             reasons: ['Controlled live-write approval is still required.'],
-            studentAction: student.selectedStudentId ? 'reuse' : 'select',
+            studentAction: student.mode === 'new'
+              ? 'create'
+              : student.selectedStudentId ? 'reuse' : 'select',
             universitiesToCreate: [],
             majorsToCreate: []
           }
@@ -138,7 +148,7 @@ export function validatePreviewRequest(input = {}) {
   const requestType = input.requestType === SOP_REQUEST_TYPE
     ? SOP_REQUEST_TYPE
     : ADMISSIONS_REQUEST_TYPE;
-  const clientMode = requestType === SOP_REQUEST_TYPE ? 'existing' : input.clientMode;
+  const clientMode = input.clientMode ?? (requestType === SOP_REQUEST_TYPE ? 'existing' : '');
   const requesterName = normalizeWhitespace(input.requesterName);
   const studentName = normalizeWhitespace(input.studentName);
   const programmes = Array.isArray(input.programmes) ? input.programmes : [];
@@ -230,6 +240,16 @@ async function buildStudentPreview({ repositories, request, matchedAgentId }) {
   const candidates = request.requestType === SOP_REQUEST_TYPE
     ? preview.candidates.filter((candidate) => candidate.agentIds.includes(matchedAgentId))
     : preview.candidates;
+  if (request.requestType === SOP_REQUEST_TYPE && candidates.length === 0) {
+    const newClientPreview = await repositories.students.getNewClientPreview(request.studentName);
+    return {
+      ...newClientPreview,
+      mode: 'new',
+      selectedStudentId: null,
+      proposedAction: 'create',
+      fallbackReason: 'no-agent-linked-existing-student'
+    };
+  }
   const requestedStudent = candidates.find(
     (candidate) => candidate.id === request.selectedStudentId
   );
@@ -412,12 +432,14 @@ function collectSopBlockingIssues({ agent, student, sopReview }) {
   } else if (agent.status === 'ambiguous') {
     issues.push('Requester Agent matched multiple rows.');
   }
-  if (!student.selectedStudentId) {
+  if (student.mode === 'existing' && !student.selectedStudentId) {
     issues.push('Existing Student selection is unresolved.');
   }
-  if (student.selectedStudentId && sopReview.candidates.length === 0) {
+  if (sopReview.placeholderIssue) {
+    issues.push(sopReview.placeholderIssue);
+  } else if (student.mode === 'existing' && student.selectedStudentId && sopReview.candidates.length === 0) {
     issues.push('No eligible Major was found in the Student admissions Work Logs.');
-  } else if (student.selectedStudentId && !sopReview.selectedMajorId) {
+  } else if (!sopReview.selectedMajorId) {
     issues.push('SOP Major selection is unresolved.');
   }
   return issues;

@@ -14,6 +14,10 @@ import {
 
 test('SOP rules detect the request, default round and language, and reject ambiguous rounds', () => {
   assert.equal(detectRequestType('[업무요청] 양원재 SOP 감수요청'), 'sop_review');
+  assert.equal(detectRequestType('양원재 자소서 2차감수 부탁드립니다'), 'sop_review');
+  assert.equal(detectRequestType('양원재 PS 3차 감수 부탁드립니다'), 'sop_review');
+  assert.equal(detectRequestType('양원재 ps감수 부탁드립니다'), 'sop_review');
+  assert.equal(detectRequestType('앱 사용법 감수 부탁드립니다'), 'admissions');
   assert.deepEqual(extractSopReviewRound('SOP 감수 요청'), {
     value: 1,
     valid: true,
@@ -130,7 +134,7 @@ test('SOP creation reuses Student and Major and creates exactly one Work Log', a
   assert.deepEqual(updated, [{ pageId: 'sop-log-1', title: 'SOP 1차 감수(국문)' }]);
 });
 
-test('SOP preview excludes same-name Students that are not linked to the requester Agent', async () => {
+test('SOP preview falls back to a new Student and Jandi Unknown when no requester-linked Student exists', async () => {
   const service = createNotionPreviewService({
     repositories: {
       agents: {
@@ -145,6 +149,13 @@ test('SOP preview excludes same-name Students that are not linked to the request
             candidates: [{ id: 'wrong-student', name: '양원재', agentIds: ['agent-2'] }],
             selectedStudentId: 'wrong-student',
             selection: { type: 'single-candidate', studentId: 'wrong-student' }
+          };
+        },
+        async getNewClientPreview() {
+          return {
+            baseName: '양원재',
+            existingFamily: [{ id: 'wrong-student', name: '양원재' }],
+            suggestedStudentName: '양원재 B'
           };
         }
       },
@@ -161,9 +172,83 @@ test('SOP preview excludes same-name Students that are not linked to the request
     programmes: []
   });
 
-  assert.deepEqual(preview.student.candidates, []);
+  assert.equal(preview.student.mode, 'new');
+  assert.equal(preview.student.suggestedStudentName, '양원재 B');
   assert.equal(preview.student.selectedStudentId, null);
-  assert.ok(preview.blockingIssues.includes('Existing Student selection is unresolved.'));
+  assert.equal(preview.sopReview.selectedMajorId, 'major-placeholder');
+  assert.equal(preview.sopReview.selectionReason, 'placeholder');
+  assert.equal(preview.sopReview.selected.university.name, 'Jandi');
+  assert.equal(preview.sopReview.selected.name, 'Unknown');
+  assert.deepEqual(preview.blockingIssues, []);
+});
+
+test('SOP creation creates a new Agent-linked Student and reuses Jandi Unknown', async () => {
+  const createdStudents = [];
+  const createdWorkLogs = [];
+  const repositories = {
+    ...makeCandidateRepositories([]),
+    agents: {
+      async findByExactName() {
+        return { status: 'matched', selected: { id: 'agent-1', name: '최승미' } };
+      }
+    },
+    students: {
+      async getNewClientPreview() {
+        return {
+          mode: 'new',
+          baseName: '신규학생',
+          existingFamily: [],
+          suggestedStudentName: '신규학생'
+        };
+      },
+      async createStudent(payload) {
+        createdStudents.push(payload);
+        return { id: 'student-new', name: payload.name, url: 'https://notion.test/student-new', agentIds: [payload.agentId] };
+      }
+    },
+    workLogs: {
+      async createWorkLog(payload) {
+        createdWorkLogs.push(payload);
+        return { id: 'sop-new-log', title: payload.title, url: 'https://notion.test/sop-new-log' };
+      },
+      async ensureCreatedWorkLogTitle(payload) {
+        return { id: payload.pageId, title: payload.title, url: 'https://notion.test/sop-new-log' };
+      },
+      async getById() {
+        throw new Error('unexpected journal recovery');
+      }
+    }
+  };
+  const service = createNotionCreationService({
+    repositories,
+    schemaChecker: async () => ({ ok: true }),
+    journal: createMemoryCreationJournal()
+  });
+
+  const result = await service.create({
+    requestType: 'sop_review',
+    clientMode: 'new',
+    requesterName: '최승미',
+    requestDateTime: '2026-08-29T16:44:00+09:00',
+    studentName: '신규학생',
+    selectedMajorId: 'major-placeholder',
+    sopReview: { round: 2, language: '영문' },
+    extractionWarnings: [],
+    programmes: []
+  });
+
+  assert.deepEqual(createdStudents, [{ name: '신규학생', agentId: 'agent-1' }]);
+  assert.equal(result.student.action, 'create');
+  assert.equal(result.majors[0].id, 'major-placeholder');
+  assert.equal(result.majors[0].action, 'reuse');
+  assert.deepEqual(createdWorkLogs, [{
+    title: 'SOP 2차 감수(영문)',
+    deadline: '2026-09-01',
+    category: 'SOP 감수(영문)',
+    requestSeason: '2026/27',
+    studentId: 'student-new',
+    majorId: 'major-placeholder'
+  }]);
 });
 
 function makeCandidateRepositories(logs) {
@@ -174,6 +259,20 @@ function makeCandidateRepositories(logs) {
       }
     },
     majors: {
+      async findByUniversityAndKey({ universityId, majorSearchKey }) {
+        if (universityId === 'uni-placeholder' && majorSearchKey === 'unknown') {
+          return {
+            status: 'matched',
+            selected: {
+              id: 'major-placeholder',
+              name: 'Unknown',
+              url: 'https://notion.test/major-placeholder',
+              universityIds: ['uni-placeholder']
+            }
+          };
+        }
+        return { status: 'missing', selected: null, candidates: [] };
+      },
       async getById(id) {
         return {
           id,
@@ -184,6 +283,14 @@ function makeCandidateRepositories(logs) {
       }
     },
     universities: {
+      async findByExactName(name) {
+        return name === 'Jandi'
+          ? {
+              status: 'matched',
+              selected: { id: 'uni-placeholder', name: 'Jandi', url: 'https://notion.test/uni-placeholder' }
+            }
+          : { status: 'missing', selected: null, candidates: [] };
+      },
       async getById(id) {
         return {
           id,

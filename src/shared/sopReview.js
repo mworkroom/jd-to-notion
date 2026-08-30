@@ -10,10 +10,15 @@ export const SOP_CATEGORIES = Object.freeze({
 });
 
 export function detectRequestType(message) {
-  const value = String(message ?? '');
-  return /sop/i.test(value) && /감수/u.test(value)
+  return isSopReviewRequest(message)
     ? SOP_REQUEST_TYPE
     : ADMISSIONS_REQUEST_TYPE;
+}
+
+export function isSopReviewRequest(message) {
+  const value = String(message ?? '');
+  return /감수/u.test(value)
+    && /sop|자소서|(?:^|[^a-z0-9])ps(?=$|[^a-z])/iu.test(value);
 }
 
 export function extractSopReviewRound(message) {
@@ -49,4 +54,3 @@ export function getSopWorkLogTitle(round, language) {
 export function getSopCategory(language) {
   return SOP_CATEGORIES[normalizeWhitespace(language)] ?? '';
 }
-

@@ -19,7 +19,10 @@ import { getNotionConfig } from './config.js';
 import { validatePreviewRequest } from './notionPreviewService.js';
 import { createNotionRepositories } from './repositories/index.js';
 import { checkNotionSchema } from './schema.js';
-import { buildSopMajorCandidatePreview } from './sopMajorCandidates.js';
+import {
+  buildSopMajorCandidatePreview,
+  buildSopPlaceholderMajorPreview
+} from './sopMajorCandidates.js';
 import {
   SOP_REQUEST_TYPE,
   getSopCategory,
@@ -294,27 +297,34 @@ async function runPreflight({ request, repositories, schemaChecker }) {
 }
 
 async function runSopPreflight({ request, repositories, agent }) {
-  const student = await repositories.students.getExistingClientPreview(
-    request.studentName,
-    agent.id
-  );
-  const eligibleCandidates = student.candidates.filter(
-    (candidate) => candidate.agentIds.includes(agent.id)
-  );
-  const selectedId = request.selectedStudentId || student.selectedStudentId;
-  const selectedStudent = eligibleCandidates.find((candidate) => candidate.id === selectedId) ?? null;
-  if (!selectedStudent) {
-    throw conflict(
-      'STUDENT_SELECTION_UNRESOLVED',
-      'The selected Student is not one of the current candidates.'
+  const student = request.clientMode === 'new'
+    ? await repositories.students.getNewClientPreview(request.studentName)
+    : await repositories.students.getExistingClientPreview(request.studentName, agent.id);
+  let selectedStudent = null;
+  if (request.clientMode === 'existing') {
+    const eligibleCandidates = student.candidates.filter(
+      (candidate) => candidate.agentIds.includes(agent.id)
     );
+    const selectedId = request.selectedStudentId || student.selectedStudentId;
+    selectedStudent = eligibleCandidates.find((candidate) => candidate.id === selectedId) ?? null;
+    if (!selectedStudent) {
+      throw conflict(
+        'STUDENT_SELECTION_UNRESOLVED',
+        'The selected Student is not one of the current candidates.'
+      );
+    }
   }
 
-  const sopReview = await buildSopMajorCandidatePreview({
-    repositories,
-    studentId: selectedStudent.id,
-    selectedMajorId: request.selectedMajorId
-  });
+  const sopReview = request.clientMode === 'new'
+    ? await buildSopPlaceholderMajorPreview({
+        repositories,
+        selectedMajorId: request.selectedMajorId
+      })
+    : await buildSopMajorCandidatePreview({
+        repositories,
+        studentId: selectedStudent.id,
+        selectedMajorId: request.selectedMajorId
+      });
   if (request.selectedMajorId && sopReview.selectedMajorId !== request.selectedMajorId) {
     throw conflict(
       'SOP_MAJOR_SELECTION_INVALID',
@@ -335,7 +345,7 @@ async function runSopPreflight({ request, repositories, agent }) {
     student,
     selectedStudent,
     selectedMajor: sopReview.selected,
-    studentIdentity: selectedStudent.id,
+    studentIdentity: selectedStudent?.id ?? request.studentName,
     universities: new Map(),
     majors: new Map()
   };
@@ -539,7 +549,7 @@ async function executeSopCreation({
     ok: true,
     requestType: SOP_REQUEST_TYPE,
     fingerprint,
-    student: { ...preflight.selectedStudent, action: 'reuse' },
+    student: null,
     universities: [{ ...preflight.selectedMajor.university, action: 'reuse' }],
     majors: [{
       id: preflight.selectedMajor.id,
@@ -549,15 +559,23 @@ async function executeSopCreation({
       action: 'reuse'
     }],
     workLogs: [],
-    finalStudentName: preflight.selectedStudent.name
+    finalStudentName: null
   };
   let step = 'student';
 
   try {
+    const student = await resolveStudent({
+      request,
+      preflight,
+      previousPage: journalRecord.pages.student,
+      repositories
+    });
+    result.student = student;
+    result.finalStudentName = student.name;
     await journal.recordPage(fingerprint, 'student', {
       key: 'student',
-      id: preflight.selectedStudent.id,
-      action: 'reuse'
+      id: student.id,
+      action: student.action
     });
 
     step = 'work_log';
@@ -579,7 +597,7 @@ async function executeSopCreation({
         deadline,
         category,
         requestSeason: REQUEST_SEASON,
-        studentId: preflight.selectedStudent.id,
+        studentId: student.id,
         majorId: preflight.selectedMajor.id
       });
       workLog = {

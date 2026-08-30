@@ -90,7 +90,9 @@ export function initializeNotionPreviewPanel({
       return;
     }
     if (!preview.candidates?.length) {
-      elements.sopMajorSelection.innerHTML = '<p class="programme-review-note">연결 가능한 입학요강 학교·학과가 없습니다. 이번 버전에서는 수동 입력으로 생성할 수 없습니다.</p>';
+      elements.sopMajorSelection.innerHTML = `<p class="programme-review-note">${escapeHtml(preview.placeholderIssue
+        ? 'Jandi · Unknown 임시 학교·학과를 찾지 못했습니다.'
+        : '연결 가능한 입학요강 학교·학과가 없습니다.')}</p>`;
       return;
     }
 
@@ -98,7 +100,7 @@ export function initializeNotionPreviewPanel({
       (candidate) => candidate.id === preview.selectedMajorId
     );
     const summary = selected
-      ? `<div class="sop-major-summary"><span><strong>${escapeHtml(selected.university.name)}</strong> · ${escapeHtml(selected.name)}</span><button type="button" class="secondary compact" data-change-sop-major>변경</button></div>`
+      ? `<div class="sop-major-summary"><span><strong>${escapeHtml(selected.university.name)}</strong> · ${escapeHtml(selected.name)}</span>${preview.isPlaceholder ? '' : '<button type="button" class="secondary compact" data-change-sop-major>변경</button>'}</div>${preview.isPlaceholder ? '<p class="programme-review-note">학교·학과 미확인 · Notion에서 추후 수정</p>' : ''}`
       : '<p class="programme-review-note">학교·학과를 선택해주세요.</p>';
     const options = sopCandidatesExpanded || !selected
       ? `<div class="sop-major-options">${preview.candidates.map((candidate) => `
@@ -140,8 +142,10 @@ export function initializeNotionPreviewPanel({
     if (requestState.requestType === SOP_REQUEST_TYPE) {
       return [
         `담당자: ${requestState.requesterName || '검토된 담당자'} 이름으로 기존 항목을 찾습니다.`,
-        `학생: ${requestState.studentName || '검토된 학생'} · 기존 고객 모드`,
-        '학교·학과: 학생의 입학요강 기록에서 자동 선택합니다.'
+        `학생: ${requestState.studentName || '검토된 학생'} · ${clientMode === 'new' ? '신규 고객' : '기존 고객 우선'} 모드`,
+        clientMode === 'new'
+          ? '학교·학과: Jandi · Unknown 임시 항목을 사용합니다.'
+          : '학교·학과: 기존 학생의 입학요강 기록에서 자동 선택합니다.'
       ];
     }
 
@@ -240,7 +244,9 @@ export function initializeNotionPreviewPanel({
     if (sopReview?.selected) {
       card.append(
         paragraphWithLink(`대학: ${sopReview.selected.university.name} · 학과: `, sopReview.selected),
-        paragraph(sopReview.selectionReason === 'admissions-1'
+        paragraph(sopReview.selectionReason === 'placeholder'
+          ? '학교·학과 미확인 · Notion에서 추후 수정'
+          : sopReview.selectionReason === 'admissions-1'
           ? '입학 요강 1 기록을 기준으로 자동 선택했습니다.'
           : sopReview.selectionReason === 'plain-as-first'
             ? '번호 없는 첫 입학요강 기록을 기준으로 자동 선택했습니다.'

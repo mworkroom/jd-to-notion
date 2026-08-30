@@ -5,8 +5,10 @@ import {
   SOP_REQUEST_TYPE,
   detectRequestType,
   extractSopLanguage,
-  extractSopReviewRound
+  extractSopReviewRound,
+  isSopReviewRequest
 } from '../../shared/sopReview.js';
+import { splitJandiMessageContext } from '../../shared/jandiMessageContext.js';
 
 const URL_PATTERN = /(?:https?:\/\/[^\]\s)]+|www\.[^\]\s)]+|(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\]\s)]*)/i;
 const DATE_PATTERN = /(\d{4})[/.](\d{1,2})[/.](\d{1,2})\s*(AM|PM)?\s*(\d{1,2}):(\d{2})/i;
@@ -16,15 +18,26 @@ const DEGREE_LABEL_PATTERN = [...DEGREE_LABELS, ...DEGREE_LABEL_TYPOS]
   .join('|');
 
 export function mockExtractJandiMessage(message) {
-  const requestType = detectRequestType(message);
-  const lines = joinWrappedUrlLines(String(message ?? '')
-    .split(/\r?\n/)
-    .map((line) => normalizeWhitespace(line))
-    .filter(Boolean));
+  const context = splitJandiMessageContext(message);
+  const requestType = isSopReviewRequest(context.primaryMessage)
+    ? SOP_REQUEST_TYPE
+    : context.sourceType === 'comment' && isSopReviewRequest(context.parentMessage)
+      ? SOP_REQUEST_TYPE
+      : detectRequestType(context.primaryMessage);
+  const lines = toMessageLines(context.primaryMessage);
+  const parentLines = toMessageLines(context.parentMessage);
 
   const requestDateLine = lines.find((line) => DATE_PATTERN.test(line)) ?? '';
   const requesterName = extractRequesterName(lines, requestDateLine);
-  const studentName = extractStudentName(lines);
+  const primaryStudentName = extractStudentName(lines);
+  const studentName = primaryStudentName || extractStudentName(parentLines);
+  const contextFallbacks = [];
+  if (!primaryStudentName && studentName) contextFallbacks.push('studentName');
+  if (context.sourceType === 'comment'
+    && !isSopReviewRequest(context.primaryMessage)
+    && isSopReviewRequest(context.parentMessage)) {
+    contextFallbacks.push('requestType');
+  }
   const requestDateTime = parseJandiDateTime(requestDateLine);
   const programmeExtraction = requestType === SOP_REQUEST_TYPE
     ? { programmes: [], warnings: [] }
@@ -32,13 +45,15 @@ export function mockExtractJandiMessage(message) {
   const programmes = programmeExtraction.programmes.map(deriveProgrammeFields);
   const sopReview = requestType === SOP_REQUEST_TYPE
     ? {
-        round: extractSopReviewRound(message).value,
-        language: extractSopLanguage(message)
+        round: extractSopReviewRound(context.primaryMessage).value,
+        language: extractSopLanguage(context.primaryMessage)
       }
     : null;
 
   return {
     requestType,
+    sourceType: context.sourceType,
+    contextFallbacks,
     requesterName,
     requestDateTime,
     studentName,
@@ -46,6 +61,13 @@ export function mockExtractJandiMessage(message) {
     extractionWarnings: programmeExtraction.warnings,
     sopReview
   };
+}
+
+function toMessageLines(message) {
+  return joinWrappedUrlLines(String(message ?? '')
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .filter(Boolean));
 }
 
 export function validateExtraction(extraction) {

@@ -134,9 +134,10 @@ export function initializeNotionCreationPanel({
 
   function renderSopCreationPlan({ statistics, readiness, finalStudentName, notionPreviewState }) {
     const selected = notionPreviewState.sopReview?.selected;
+    const createsStudent = notionPreviewState.student?.mode === 'new';
     elements.notionPlanSummary.textContent = [
       '담당자 기존 사용',
-      '학생 기존 항목 사용',
+      `학생 ${createsStudent ? '새로 생성' : '기존 항목 사용'}`,
       '학교·학과 기존 항목 사용',
       '작업 일지 1개 생성'
     ].join(' · ');
@@ -145,6 +146,7 @@ export function initializeNotionCreationPanel({
       <dl class="plan-facts">
         <div><dt>최종 학생명</dt><dd>${escapeHtml(finalStudentName || '확인 필요')}</dd></div>
         <div><dt>학교·학과</dt><dd>${escapeHtml(selected ? `${selected.university.name} · ${selected.name}` : '확인 필요')}</dd></div>
+        ${notionPreviewState.sopReview?.isPlaceholder ? '<div><dt>후속 작업</dt><dd>학교·학과 미확인 · Notion에서 추후 수정</dd></div>' : ''}
         <div><dt>작업 일지 제목</dt><dd>${escapeHtml(notionPreviewState.workLog?.title || '확인 필요')}</dd></div>
         <div><dt>Category</dt><dd>${escapeHtml(notionPreviewState.workLog?.category || '확인 필요')}</dd></div>
         <div><dt>마감일</dt><dd>${escapeHtml(notionPreviewState.workLog?.deadline || '확인 필요')}</dd></div>
@@ -188,13 +190,14 @@ export function initializeNotionCreationPanel({
 
   function getCreationStatistics({ requestState, notionPreviewState }) {
     if (requestState.requestType === SOP_REQUEST_TYPE) {
+      const studentCreates = notionPreviewState.student?.mode === 'new' ? 1 : 0;
       return {
-        studentCreates: 0,
+        studentCreates,
         universityCreates: 0,
         majorCreates: 0,
         workLogCreates: 1,
-        totalCreates: 1,
-        totalReuses: notionPreviewState.sopReview?.selected ? 4 : 2
+        totalCreates: studentCreates + 1,
+        totalReuses: notionPreviewState.sopReview?.selected ? (studentCreates ? 3 : 4) : 2
       };
     }
 
@@ -367,7 +370,7 @@ export function initializeNotionCreationPanel({
     if (requestState.requestType === SOP_REQUEST_TYPE) {
       return {
         requestType: SOP_REQUEST_TYPE,
-        clientMode: 'existing',
+        clientMode: notionPreviewState.student?.mode ?? clientMode,
         requesterName: requestState.requesterName,
         requestDateTime: requestState.requestDateTime,
         studentName: requestState.studentName,

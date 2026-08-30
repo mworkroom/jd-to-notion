@@ -117,7 +117,13 @@ notionPreviewController = initializeNotionPreviewController({
   onPreviewStarted: () => {
     wordPanel.invalidateSummary('Notion 항목 확인 뒤 Word 생성 예정 내용을 자동 표시합니다.');
   },
-  onPreviewCompleted: () => {
+  onPreviewCompleted: (previewState) => {
+    if (requestState.requestType === SOP_REQUEST_TYPE
+      && previewState?.student?.mode
+      && previewState.student.mode !== clientMode) {
+      clientMode = previewState.student.mode;
+      syncClientModeControls();
+    }
     wordPanel.invalidateSummary('Notion 확인 결과를 Word 생성 예정 내용에 반영했습니다.');
     notionCreationPanel.invalidatePreview();
   },
@@ -249,12 +255,19 @@ function renderRequest() {
 function configureRequestType() {
   const isSop = requestState.requestType === SOP_REQUEST_TYPE;
   clientMode = isSop ? 'existing' : 'new';
+  syncClientModeControls();
+}
+
+function syncClientModeControls() {
+  const isSop = requestState.requestType === SOP_REQUEST_TYPE;
   elements.clientModeInputs.forEach((input) => {
     input.checked = input.value === clientMode;
-    input.disabled = isSop && input.value === 'new';
+    input.disabled = false;
   });
   elements.clientModeNote.textContent = isSop
-    ? 'SOP 감수는 기존 학생만 지원합니다. 담당자 연결까지 일치하는 학생을 사용합니다.'
+    ? clientMode === 'new'
+      ? '담당자와 연결된 기존 학생이 없어 신규 학생으로 전환했습니다. 학교·학과는 Jandi · Unknown을 임시 사용합니다.'
+      : '담당자와 연결된 기존 학생을 먼저 찾고, 없으면 신규 학생과 Jandi · Unknown으로 자동 전환합니다.'
     : '학생 구분을 바꾸면 Notion 항목을 다시 조회해야 합니다.';
 }
 

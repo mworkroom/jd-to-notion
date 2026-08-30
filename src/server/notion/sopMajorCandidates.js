@@ -1,8 +1,10 @@
-import { normalizeWhitespace } from '../../shared/normalization.js';
+import { getMajorSearchKey, normalizeWhitespace } from '../../shared/normalization.js';
 
 const EXACT_FIRST_TITLE = '입학 요강 1';
 const PLAIN_TITLE = '입학 요강';
 const NUMBERED_TITLE_PATTERN = /^입학 요강\s+(\d+)$/u;
+export const SOP_PLACEHOLDER_UNIVERSITY_NAME = 'Jandi';
+export const SOP_PLACEHOLDER_MAJOR_NAME = 'Unknown';
 
 export async function buildSopMajorCandidatePreview({ repositories, studentId, selectedMajorId = '' }) {
   if (!studentId) {
@@ -52,6 +54,57 @@ export async function buildSopMajorCandidatePreview({ repositories, studentId, s
     selectionReason: resolvedSelection.selectionReason,
     skippedWorkLogCount: workLogs.length - eligibleLogs.length,
     selected: candidates.find((candidate) => candidate.id === resolvedSelection.selectedMajorId) ?? null
+  };
+}
+
+export async function buildSopPlaceholderMajorPreview({ repositories, selectedMajorId = '' }) {
+  const universityMatch = await repositories.universities.findByExactName(
+    SOP_PLACEHOLDER_UNIVERSITY_NAME
+  );
+  if (universityMatch.status !== 'matched') {
+    return {
+      ...emptyPreview(),
+      isPlaceholder: true,
+      placeholderIssue: universityMatch.status === 'ambiguous'
+        ? 'Jandi University placeholder matched multiple rows.'
+        : 'Jandi University placeholder was not found.'
+    };
+  }
+
+  const majorMatch = await repositories.majors.findByUniversityAndKey({
+    universityId: universityMatch.selected.id,
+    majorSearchKey: getMajorSearchKey(SOP_PLACEHOLDER_MAJOR_NAME),
+    requestedOriginalName: SOP_PLACEHOLDER_MAJOR_NAME,
+    proposedCreateName: SOP_PLACEHOLDER_MAJOR_NAME
+  });
+  if (majorMatch.status !== 'matched') {
+    return {
+      ...emptyPreview(),
+      isPlaceholder: true,
+      placeholderIssue: majorMatch.status === 'ambiguous'
+        ? 'Unknown Major placeholder matched multiple rows under Jandi.'
+        : 'Unknown Major placeholder was not found under Jandi.'
+    };
+  }
+
+  const candidate = {
+    ...majorMatch.selected,
+    university: universityMatch.selected,
+    sourceWorkLogs: []
+  };
+  const requestedSelection = normalizeWhitespace(selectedMajorId);
+  const selectedMajorIdResolved = requestedSelection && requestedSelection !== candidate.id
+    ? null
+    : candidate.id;
+
+  return {
+    candidates: [candidate],
+    selectedMajorId: selectedMajorIdResolved,
+    selectionReason: selectedMajorIdResolved ? 'placeholder' : null,
+    skippedWorkLogCount: 0,
+    selected: selectedMajorIdResolved ? candidate : null,
+    isPlaceholder: true,
+    placeholderIssue: selectedMajorIdResolved ? null : 'The selected Major is not the Jandi · Unknown placeholder.'
   };
 }
 
