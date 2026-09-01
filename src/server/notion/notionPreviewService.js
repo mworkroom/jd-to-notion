@@ -60,7 +60,8 @@ export function createNotionPreviewService({ repositories }) {
           : await buildSopMajorCandidatePreview({
               repositories,
               studentId: student.selectedStudentId,
-              selectedMajorId: request.selectedMajorId
+              selectedMajorId: request.selectedMajorId,
+              reviewRound: request.sopReview.round
             });
         const workLog = buildSopWorkLogPreview(request);
         const blockingIssues = collectSopBlockingIssues({ agent, student, sopReview });

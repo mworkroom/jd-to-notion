@@ -1,4 +1,5 @@
 import { ADMISSIONS_CATEGORY, getNextWorkLogTitle } from '../../../shared/workLog.js';
+import { SOP_CATEGORIES } from '../../../shared/sopReview.js';
 import { mapNotionError } from '../errors.js';
 import { NOTION_PROPERTY_NAMES } from '../schema.js';
 import { queryDataSourcePages } from '../pagination.js';
@@ -10,7 +11,7 @@ const TITLE_FINALIZATION_MAX_ATTEMPTS = 5;
 export function createWorkLogsRepository({ client, dataSourceId, sleep = wait }) {
   return {
     async findAdmissionsLogsForStudent(studentId) {
-      const pages = await queryWorkLogsForStudent(client, dataSourceId, studentId);
+      const pages = await queryWorkLogsForStudent(client, dataSourceId, studentId, ADMISSIONS_CATEGORY);
       return pages
         .map(toWorkLogSummary)
         .filter((entry) => entry.studentIds.includes(studentId))
@@ -19,7 +20,7 @@ export function createWorkLogsRepository({ client, dataSourceId, sleep = wait })
     },
 
     async findAdmissionsLogsWithMajorsForStudent(studentId) {
-      const pages = await queryWorkLogsForStudent(client, dataSourceId, studentId);
+      const pages = await queryWorkLogsForStudent(client, dataSourceId, studentId, ADMISSIONS_CATEGORY);
       return pages
         .map(toWorkLogSummary)
         .filter((entry) => entry.studentIds.includes(studentId))
@@ -30,6 +31,28 @@ export function createWorkLogsRepository({ client, dataSourceId, sleep = wait })
           category,
           majorIds,
           createdTime
+        }));
+    },
+
+    async findSopLogsWithMajorsForStudent(studentId) {
+      const categories = Object.values(SOP_CATEGORIES);
+      const groupedEntries = await Promise.all(categories.map(async (category) => {
+        const pages = await queryWorkLogsForStudent(client, dataSourceId, studentId, category);
+        return pages
+          .map(toWorkLogSummary)
+          .filter((entry) => entry.studentIds.includes(studentId))
+          .filter((entry) => entry.category === category);
+      }));
+
+      return groupedEntries
+        .flat()
+        .map(({ id, title, category, majorIds, createdTime, requestSeason }) => ({
+          id,
+          title,
+          category,
+          majorIds,
+          createdTime,
+          requestSeason
         }));
     },
 
@@ -147,7 +170,7 @@ function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function queryWorkLogsForStudent(client, dataSourceId, studentId) {
+async function queryWorkLogsForStudent(client, dataSourceId, studentId, category) {
   try {
     return await queryDataSourcePages(client, {
       data_source_id: dataSourceId,
@@ -162,7 +185,7 @@ async function queryWorkLogsForStudent(client, dataSourceId, studentId) {
           {
             property: NOTION_PROPERTY_NAMES.workLog.category,
             select: {
-              equals: ADMISSIONS_CATEGORY
+              equals: category
             }
           }
         ]
@@ -180,6 +203,7 @@ function toWorkLogSummary(page) {
     category: readSelectName(page, NOTION_PROPERTY_NAMES.workLog.category),
     studentIds: readRelationPageIds(page, NOTION_PROPERTY_NAMES.workLog.students),
     majorIds: readRelationPageIds(page, NOTION_PROPERTY_NAMES.workLog.major),
+    requestSeason: readSelectName(page, NOTION_PROPERTY_NAMES.workLog.requestSeason),
     createdTime: page.created_time ?? ''
   };
 }

@@ -475,6 +475,16 @@ Medical Biotechnology and Business Management MSc
 Medical Biotechnology and Business Management (MSc)
 ```
 
+If the written programme name omits a degree label, inspect only standalone
+recognized degree tokens in the programme URL path. A single token such as
+`-msc/` or `-ma-` may supply the trailing degree label for the proposed Notion
+Major name while `programmeNameOriginal` remains unchanged. Do not infer a
+degree from query parameters, partial words, or generic `master` wording.
+
+If the written name and URL degree conflict, the URL contains multiple degree
+tokens, or neither source contains a recognized degree, require manual review
+instead of choosing a degree automatically.
+
 Creation behavior:
 
 - If the degree label appears at the beginning, move it to the end.

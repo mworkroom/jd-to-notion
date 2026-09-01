@@ -1,3 +1,4 @@
+import { getAdmissionsCycleStartYear } from './admissionsCycle.js';
 import { splitProgrammeName } from './normalization.js';
 
 const WORD_EXTENSION = '.docx';
@@ -58,7 +59,7 @@ export function generateProgrammeLabel(programmeNames = []) {
 export function generateWordFilename({
   studentName,
   programmeNames,
-  year = '2026',
+  year = getAdmissionsCycleStartYear(),
   category = WORD_FILENAME_CATEGORY
 }) {
   const cleanStudentName = String(studentName ?? '').trim();

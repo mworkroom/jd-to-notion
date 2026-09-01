@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { calculateWeekdayDeadline } from '../src/shared/deadline.js';
 import { generateProgrammeLabel, generateWordFilename, sanitizeFilenamePart } from '../src/shared/filename.js';
-import { getMajorSearchKey, getProposedMajorName, suggestNextStudentName } from '../src/shared/normalization.js';
+import {
+  deriveProgrammeFields,
+  getMajorSearchKey,
+  getProgrammeUrlDegreeLabels,
+  getProposedMajorName,
+  suggestNextStudentName
+} from '../src/shared/normalization.js';
 import {
   ADMISSIONS_CATEGORY,
   WORK_LOG_TITLE_PREFIX,
@@ -79,6 +85,59 @@ test('major normalization treats standalone MCs variants as MSc while preserving
       'Advanced Materials Science and Engineering MSc'
     );
   }
+});
+
+test('programme normalization adds one explicit degree token from the URL to a degree-less name', () => {
+  const programme = deriveProgrammeFields({
+    programmeNameOriginal: 'Data Science & AI',
+    programmeUrl: 'https://www.liverpool.ac.uk/courses/data-science-and-artificial-intelligence-msc/2027-01'
+  });
+
+  assert.equal(programme.programmeNameOriginal, 'Data Science & AI');
+  assert.equal(programme.majorSearchKey, 'data science & ai');
+  assert.equal(programme.notionMajorNameProposed, 'Data Science & AI MSc');
+  assert.equal(programme.inferredDegreeLabel, 'MSc');
+  assert.deepEqual(programme.urlDegreeLabels, ['MSc']);
+  assert.equal(programme.needsMajorNameReview, false);
+});
+
+test('programme normalization keeps URL degree inference within safe review boundaries', () => {
+  assert.deepEqual(
+    getProgrammeUrlDegreeLabels('https://example.test/courses/finance-ma/2027'),
+    ['MA']
+  );
+  assert.deepEqual(
+    getProgrammeUrlDegreeLabels('https://example.test/courses/finance-msc-mres'),
+    ['MSc', 'MRes']
+  );
+  assert.deepEqual(
+    getProgrammeUrlDegreeLabels('https://example.test/courses/mass-communication?degree=msc'),
+    []
+  );
+
+  const conflict = deriveProgrammeFields({
+    programmeNameOriginal: 'Finance MA',
+    programmeUrl: 'https://example.test/courses/finance-msc'
+  });
+  assert.equal(conflict.notionMajorNameProposed, 'Finance MA');
+  assert.equal(conflict.degreeReviewReason, 'programme-url-degree-conflict');
+  assert.equal(conflict.needsMajorNameReview, true);
+
+  const ambiguous = deriveProgrammeFields({
+    programmeNameOriginal: 'Finance',
+    programmeUrl: 'https://example.test/courses/finance-msc-mres'
+  });
+  assert.equal(ambiguous.notionMajorNameProposed, 'Finance');
+  assert.equal(ambiguous.degreeReviewReason, 'url-degree-ambiguous');
+  assert.equal(ambiguous.needsMajorNameReview, true);
+
+  const missing = deriveProgrammeFields({
+    programmeNameOriginal: 'Finance',
+    programmeUrl: 'https://example.test/courses/finance'
+  });
+  assert.equal(missing.notionMajorNameProposed, 'Finance');
+  assert.equal(missing.degreeReviewReason, 'degree-missing');
+  assert.equal(missing.needsMajorNameReview, true);
 });
 
 test('generateProgrammeLabel uses the longest meaningful phrase when coverage is tied', () => {

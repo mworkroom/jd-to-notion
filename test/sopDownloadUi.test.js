@@ -31,5 +31,21 @@ test('SOP download panel owns watcher state, timers, endpoints, and status rende
   assert.match(sopDownloadPanel, /\/api\/sop-download\/status\?id=/u);
   assert.match(sopDownloadPanel, /fetchImpl\('\/api\/sop-download\/cancel'/u);
   assert.match(sopDownloadPanel, /currentRequestSequence !== requestSequence/u);
+  assert.match(sopDownloadPanel, /arm: \(\) => armSopDownload\(\{ autoDownload: true \}\)/u);
+  assert.match(sopDownloadPanel, /armSopDownload\(\{ autoDownload: false \}\)/u);
+  assert.match(sopDownloadPanel, /JSON\.stringify\(\{ studentName, message: normalizedMessage, autoDownload \}\)/u);
+  assert.match(sopDownloadPanel, /자동 다운로드 시작됨/u);
+  assert.match(sopDownloadPanel, /자동 다운로드 보류/u);
+  assert.match(sopDownloadPanel, /DOCX\/PDF 첨부파일/u);
   assert.match(sopDownloadPanel, /statusElement\.dataset\.tone = tone/u);
+});
+
+test('JANDI extractor keeps post and comment attachments in separate source scopes', async () => {
+  const inspector = await readFile(new URL('../automation/inspect-jandi-cdp.mjs', import.meta.url), 'utf8');
+
+  assert.match(inspector, /commentContainer/u);
+  assert.match(inspector, /!element\.closest\('\.comment-item\.article-comment'\)/u);
+  assert.match(inspector, /const scopedElements/u);
+  assert.match(inspector, /onPreviewClick/u);
+  assert.match(inspector, /locateViewerDownload/u);
 });

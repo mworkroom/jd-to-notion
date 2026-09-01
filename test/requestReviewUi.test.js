@@ -48,4 +48,6 @@ test('Request review panel owns normalization, validation, rendering, and edit e
   assert.match(requestReviewPanel, /input\.addEventListener\('input', updateProgrammeField\)/u);
   assert.match(requestReviewPanel, /onRequestChange\(\{/u);
   assert.match(requestReviewPanel, /onSopReviewChange\(\{ round, language \}\)/u);
+  assert.match(requestReviewPanel, /URL에서 학위명/u);
+  assert.match(requestReviewPanel, /programme-url-degree-conflict/u);
 });

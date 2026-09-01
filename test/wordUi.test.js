@@ -30,12 +30,17 @@ test('Word panel owns its DOM, state, rendering, and guarded generation request'
     assert.match(html, new RegExp(`id="${id}"`));
   }
 
+  assert.match(html, /id="admissions-cycle-note"/u);
+
   assert.match(app, /from '\.\/wordPanel\.js'/u);
+  assert.match(app, /ADMISSIONS_CYCLE/u);
+  assert.match(app, /ADMISSIONS_FILENAME_PREFIX/u);
   assert.match(app, /const wordPanel = initializeWordPanel/u);
   assert.match(app, /requestState,\s+notionPreviewState: getNotionPreviewState\(\),\s+finalStudentName: getFinalStudentName\(\)/u);
   assert.doesNotMatch(app, /wordEnvironmentState|isGeneratingWord|function generateWordFile/u);
 
   assert.match(wordPanel, /export function initializeWordPanel/u);
+  assert.match(wordPanel, /ADMISSIONS_CYCLE_START_YEAR/u);
   assert.match(wordPanel, /fetchImpl\('\/api\/word\/status'\)/u);
   assert.match(wordPanel, /fetchImpl\('\/api\/word\/generate'/u);
   assert.match(wordPanel, /method: 'POST'/u);

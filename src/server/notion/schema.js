@@ -1,6 +1,7 @@
 import { getNotionConfig } from './config.js';
 import { getDefaultNotionClient } from './client.js';
 import { mapNotionError, safeErrorPayload } from './errors.js';
+import { REQUEST_SEASON } from '../../shared/workLog.js';
 
 export const NOTION_DATA_SOURCE_KEYS = Object.freeze([
   'workLog',
@@ -51,7 +52,7 @@ export const REQUIRED_NOTION_SCHEMAS = Object.freeze({
     {
       name: NOTION_PROPERTY_NAMES.workLog.requestSeason,
       type: 'select',
-      options: ['2026/27']
+      options: [REQUEST_SEASON]
     }
   ]),
   students: Object.freeze([

@@ -33,5 +33,7 @@ test('Notion preview panel owns preview rendering and review interactions', asyn
   assert.match(notionPreviewPanel, /input\.dataset\.majorCreateName = String\(programmeIndex\)/u);
   assert.match(notionPreviewPanel, /checkbox\.dataset\.majorNameConfirmation = String\(programmeIndex\)/u);
   assert.match(notionPreviewPanel, /onPreviewEdit\(\{ type: 'sop-major-selection' \}\)/u);
+  assert.match(notionPreviewPanel, /selectionReason === 'previous-sop-round'/u);
+  assert.match(notionPreviewPanel, /SOP \$\{sopReview\.selectionSourceRound\}차 기록/u);
   assert.match(notionPreviewPanel, /export function getSelectedStudentName/u);
 });

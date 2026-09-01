@@ -69,6 +69,7 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
    NOTION_UNIVERSITIES_DATA_SOURCE_ID=
    NOTION_MAJORS_DATA_SOURCE_ID=
    NOTION_CREATION_ENABLED=true
+   ADMISSIONS_CYCLE=2026/27
    WORD_GENERATION_ENABLED=false
    WORD_TEMPLATE_PATH=C:\Users\Marion\Documents\Custom Office Templates\[2026입학요강] 자동생성용.docx
    WORD_TEMPLATE_SHA256=
@@ -81,7 +82,7 @@ The app is local-only and binds to `127.0.0.1`. Notion creation becomes availabl
    GOOGLE_SYNC_LOG_SHEET_NAME=_JD_SYNC
    ```
 
-   Extraction and filename generation still work when the Notion values are blank. Set `NOTION_CREATION_ENABLED=false` to disable all create requests at the server.
+   `ADMISSIONS_CYCLE` is the single active admissions-cycle setting. The app derives the Notion request season and the `[2026입학요강]` filename prefix from it, and shows both in the header. Extraction and filename generation still work when the Notion values are blank. Set `NOTION_CREATION_ENABLED=false` to disable all create requests at the server.
    Keep `WORD_GENERATION_ENABLED=false` until the generated DOCX has been visually approved in Microsoft Word. Calculate the source template's exact SHA-256, copy it into `WORD_TEMPLATE_SHA256`, then restart the server before testing Word generation.
 
 7. Run the unit tests:
@@ -177,6 +178,17 @@ The macro path uses the same sync service in `all` mode. The actively used `EDM.
 7. After Microsoft Word visual approval, set `WORD_GENERATION_ENABLED=true` and restart the server.
 
 Word generation does not require a successful Notion create request. It copies the source DOCX, changes only `word/header1.xml` and `word/document.xml`, keeps the fixed SOP/reference area once, saves to `WORD_OUTPUT_DIR`, and never opens Word automatically. The same action also creates or reuses a sibling work folder named `학생명_Programme Label`; the DOCX remains directly in `WORD_OUTPUT_DIR`, matching the previous Word macro workflow.
+
+### Annual admissions-cycle rollover
+
+The rollover is explicit rather than date-driven. When the business cycle changes:
+
+1. Change only `ADMISSIONS_CYCLE` in `.env`, for example from `2026/27` to `2027/28`.
+2. Confirm that the same option already exists in the Notion `요청 시즌` Select property. The schema preflight checks the active configured option.
+3. Prepare the matching Word template, update `WORD_TEMPLATE_PATH`, and replace `WORD_TEMPLATE_SHA256` with the new file's hash.
+4. Restart the local server and confirm the header, Notion preview, generated filename, and Word status all show the new cycle.
+
+If a year-tagged Word template or output filename still uses another cycle, Word generation is blocked instead of silently mixing years. Historical dates, source URLs, and the Notion API version are unrelated to this setting and must not be globally replaced.
 
 ### Windows double-click startup
 

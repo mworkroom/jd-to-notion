@@ -262,7 +262,8 @@ export function initializeRequestReviewPanel({
             </label>
           </div>
         </details>
-        ${programme.needsMajorNameReview ? '<p class="programme-review-note">Degree format is ambiguous and should be reviewed before a later Notion creation phase.</p>' : ''}
+        ${programme.inferredDegreeLabel ? `<p class="programme-review-note">URL에서 학위명 ${escapeHtml(programme.inferredDegreeLabel)}를 자동 보완했습니다.</p>` : ''}
+        ${programme.needsMajorNameReview ? `<p class="programme-review-note">${escapeHtml(getDegreeReviewMessage(programme))}</p>` : ''}
       `;
 
       elements.programmeList.append(row);
@@ -368,6 +369,19 @@ function getProgrammeStatus(programme, warnings) {
     return { tone: 'warning', label: '검토 필요' };
   }
   return { tone: 'success', label: '정상' };
+}
+
+function getDegreeReviewMessage(programme) {
+  if (programme.degreeReviewReason === 'url-degree-ambiguous') {
+    return `URL에서 복수 학위(${programme.urlDegreeLabels.join(', ')})가 확인되어 수동 확인이 필요합니다.`;
+  }
+  if (programme.degreeReviewReason === 'programme-url-degree-conflict') {
+    return `학과명과 URL의 학위가 서로 달라 수동 확인이 필요합니다. URL 학위: ${programme.urlDegreeLabels[0]}`;
+  }
+  if (programme.degreeReviewReason === 'degree-missing') {
+    return '학과명과 URL에서 학위명을 확인하지 못했습니다.';
+  }
+  return '학위 형식이 모호하여 수동 확인이 필요합니다.';
 }
 
 function getUrlDomain(value) {

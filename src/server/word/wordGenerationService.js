@@ -29,7 +29,11 @@ const FIXED_SOP_HEADING = 'SOP 글자 수 환산표';
 const DEGREE_PREFIXES = new Set(['석사', '학사']);
 const INVALID_WINDOWS_FILENAME_CHARS = /[<>:"|?*\u0000-\u001F]/g;
 const RESERVED_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+const ADMISSIONS_FILENAME_PREFIX_PATTERN = /^\[\d{4}입학요강\]/u;
 const DOCX_MAIN_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml';
+const DOCUMENT_RELATIONSHIPS_PATH = 'word/_rels/document.xml.rels';
+const OFFICE_RELATIONSHIP_NAMESPACE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const HYPERLINK_RELATIONSHIP_TYPE = `${OFFICE_RELATIONSHIP_NAMESPACE}/hyperlink`;
 
 export function createDefaultWordGenerationService({ config } = {}) {
   const resolvedConfig = {
@@ -74,9 +78,10 @@ export function createDefaultWordGenerationService({ config } = {}) {
       }
 
       const request = validateWordRequest(input);
+      const requestedFilename = sanitizeOutputFilename(request.filename);
+      assertAdmissionsFilenameCycle(requestedFilename, resolvedConfig.filenamePrefix);
       const templateBuffer = await readFile(resolvedConfig.templatePath);
       const generatedBuffer = buildWordDocument(templateBuffer, request);
-      const requestedFilename = sanitizeOutputFilename(request.filename);
       const folderName = buildOutputFolderName(
         request.studentName,
         request.programmeLabel
@@ -138,6 +143,8 @@ export async function inspectWordEnvironment(config) {
     ok: template.valid && output.writable,
     enabled: config.enabled === true,
     ready: config.enabled === true && template.valid && output.writable,
+    admissionsCycle: config.admissionsCycle ?? '',
+    filenamePrefix: config.filenamePrefix ?? '',
     template,
     output
   };
@@ -151,6 +158,15 @@ export async function inspectWordTemplate(config) {
     issues.push(issue(
       'WORD_TEMPLATE_FORMAT_INVALID',
       'Word 템플릿 경로는 .docx 파일이어야 합니다.'
+    ));
+  }
+
+  const templateName = templatePath ? path.basename(templatePath) : '';
+  if (hasAdmissionsCycleMismatch(templateName, config.filenamePrefix)) {
+    issues.push(issue(
+      'WORD_TEMPLATE_CYCLE_MISMATCH',
+      `Word 템플릿 파일명이 현재 입학 사이클의 ${config.filenamePrefix}로 시작하지 않습니다.`,
+      { actual: templateName, expectedPrefix: config.filenamePrefix }
     ));
   }
 
@@ -325,6 +341,7 @@ export function buildWordDocument(templateBuffer, requestInput) {
 
   const headerXml = readZipText(zip, 'word/header1.xml');
   const documentXml = readZipText(zip, 'word/document.xml');
+  const documentRelationshipsXml = readZipText(zip, DOCUMENT_RELATIONSHIPS_PATH);
   const replacements = {
     '[[DEGREE_PREFIX]]': `[${request.degree}]`,
     '[[PROGRAMME_LABEL]]': request.programmeLabel,
@@ -337,28 +354,39 @@ export function buildWordDocument(templateBuffer, requestInput) {
     prototype.startOffset,
     prototype.endOffset
   );
-  const programmeBlocks = request.programmes.map((programme) => (
-    replaceMarkers(prototypeXml, {
-      '[[UNIVERSITY]]': programme.universityName,
-      '[[PROGRAMME]]': programme.majorName,
-      '[[URL]]': programme.url
-    })
-  ));
+  const nextRelationshipId = createRelationshipIdAllocator(documentRelationshipsXml);
+  const hyperlinkRelationships = [];
+  const programmeBlocks = request.programmes.map((programme) => {
+    const relationshipId = nextRelationshipId();
+    hyperlinkRelationships.push({
+      id: relationshipId,
+      target: programme.url
+    });
+    return replaceProgrammeMarkers(prototypeXml, programme, relationshipId);
+  });
   const generatedBodyContent = [
     prototype.bodyContent.slice(0, prototype.startOffset),
     programmeBlocks.join(''),
     prototype.bodyContent.slice(prototype.endOffset)
   ].join('');
-  const generatedDocumentXml = [
+  const generatedDocumentXml = ensureRelationshipNamespace([
     documentXml.slice(0, prototype.bodyStart),
     generatedBodyContent,
     documentXml.slice(prototype.bodyEnd)
-  ].join('');
+  ].join(''));
+  const generatedDocumentRelationshipsXml = appendHyperlinkRelationships(
+    documentRelationshipsXml,
+    hyperlinkRelationships
+  );
 
   assertNoMarkers(generatedHeaderXml, HEADER_MARKERS);
   assertNoMarkers(generatedDocumentXml, BODY_MARKERS);
   zip.updateFile('word/header1.xml', Buffer.from(generatedHeaderXml, 'utf8'));
   zip.updateFile('word/document.xml', Buffer.from(generatedDocumentXml, 'utf8'));
+  zip.updateFile(
+    DOCUMENT_RELATIONSHIPS_PATH,
+    Buffer.from(generatedDocumentRelationshipsXml, 'utf8')
+  );
 
   return zip.toBuffer();
 }
@@ -434,6 +462,27 @@ export function sanitizeOutputFilename(value) {
   }
 
   return `${stem}.docx`;
+}
+
+function assertAdmissionsFilenameCycle(filename, expectedPrefix) {
+  if (!hasAdmissionsCycleMismatch(filename, expectedPrefix)) {
+    return;
+  }
+
+  throw new WordGenerationError(
+    'WORD_FILENAME_CYCLE_MISMATCH',
+    `Word 파일명이 현재 입학 사이클의 ${expectedPrefix}로 시작하지 않습니다.`,
+    {
+      statusCode: 422,
+      details: { filename, expectedPrefix }
+    }
+  );
+}
+
+function hasAdmissionsCycleMismatch(filename, expectedPrefix) {
+  return Boolean(expectedPrefix)
+    && ADMISSIONS_FILENAME_PREFIX_PATTERN.test(String(filename ?? ''))
+    && !String(filename).startsWith(expectedPrefix);
 }
 
 export function buildOutputFolderName(studentName, programmeLabel) {
@@ -713,6 +762,107 @@ function replaceMarkers(xml, replacements) {
   return result;
 }
 
+function replaceProgrammeMarkers(prototypeXml, programme, relationshipId) {
+  let result = replaceMarkers(prototypeXml, {
+    '[[UNIVERSITY]]': programme.universityName
+  });
+  result = replaceMarkerRun(result, '[[PROGRAMME]]', programme.majorName, (runXml) => (
+    addRunProperties(runXml, '<w:b/>')
+  ));
+  return replaceMarkerRun(result, '[[URL]]', programme.url, (runXml) => {
+    const linkedRunXml = addRunProperties(
+      runXml,
+      '<w:color w:val="0563C1"/><w:u w:val="single"/>'
+    );
+    return `<w:hyperlink r:id="${relationshipId}" w:history="1">${linkedRunXml}</w:hyperlink>`;
+  });
+}
+
+function replaceMarkerRun(xml, marker, value, transformRun) {
+  let replacementCount = 0;
+  const result = xml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (runXml) => {
+    if (!runXml.includes(marker)) {
+      return runXml;
+    }
+    replacementCount += 1;
+    const replacedRunXml = runXml.replaceAll(marker, escapeXmlText(value));
+    return transformRun(replacedRunXml);
+  });
+
+  if (replacementCount !== 1) {
+    throw new WordGenerationError(
+      'WORD_TEMPLATE_MARKER_REPLACEMENT_FAILED',
+      `Word 템플릿 마커 ${marker}의 글자 서식을 적용하지 못했습니다.`,
+      {
+        statusCode: 500,
+        details: { marker, replacementCount }
+      }
+    );
+  }
+
+  return result;
+}
+
+function addRunProperties(runXml, propertiesXml) {
+  if (/<w:rPr\b[^>]*\/>/.test(runXml)) {
+    return runXml.replace(
+      /<w:rPr\b[^>]*\/>/,
+      (runPropertiesXml) => `${runPropertiesXml.slice(0, -2)}>${propertiesXml}</w:rPr>`
+    );
+  }
+  if (/<w:rPr\b[^>]*>/.test(runXml)) {
+    return runXml.replace('</w:rPr>', `${propertiesXml}</w:rPr>`);
+  }
+  return runXml.replace(
+    /(<w:r\b[^>]*>)/,
+    `$1<w:rPr>${propertiesXml}</w:rPr>`
+  );
+}
+
+function createRelationshipIdAllocator(relationshipsXml) {
+  const usedIds = new Set(
+    [...relationshipsXml.matchAll(/\bId="([^"]+)"/g)].map((match) => match[1])
+  );
+  let sequence = 1;
+
+  return () => {
+    let candidate;
+    do {
+      candidate = `rIdGeneratedHyperlink${sequence}`;
+      sequence += 1;
+    } while (usedIds.has(candidate));
+    usedIds.add(candidate);
+    return candidate;
+  };
+}
+
+function appendHyperlinkRelationships(relationshipsXml, relationships) {
+  const closingTag = '</Relationships>';
+  if (!relationshipsXml.includes(closingTag)) {
+    throw new WordGenerationError(
+      'WORD_TEMPLATE_RELATIONSHIPS_INVALID',
+      'Word 템플릿의 문서 관계 파일을 사용할 수 없습니다.',
+      { statusCode: 503 }
+    );
+  }
+
+  const relationshipXml = relationships.map(({ id, target }) => (
+    `<Relationship Id="${id}" Type="${HYPERLINK_RELATIONSHIP_TYPE}" `
+      + `Target="${escapeXmlAttribute(target)}" TargetMode="External"/>`
+  )).join('');
+  return relationshipsXml.replace(closingTag, `${relationshipXml}${closingTag}`);
+}
+
+function ensureRelationshipNamespace(documentXml) {
+  if (/\bxmlns:r=/.test(documentXml)) {
+    return documentXml;
+  }
+  return documentXml.replace(
+    /<w:document\b/,
+    `<w:document xmlns:r="${OFFICE_RELATIONSHIP_NAMESPACE}"`
+  );
+}
+
 function assertNoMarkers(xml, markers) {
   const remaining = markers.filter((marker) => xml.includes(marker));
   if (remaining.length) {
@@ -738,6 +888,12 @@ function escapeXmlText(value) {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function escapeXmlAttribute(value) {
+  return escapeXmlText(value)
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }
 
 function decodeXmlText(value) {

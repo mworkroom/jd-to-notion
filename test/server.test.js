@@ -56,6 +56,66 @@ test('local app serves the shell and mocked extraction endpoint', async () => {
   }
 });
 
+test('mocked extraction supports labeled university and programme fields and infers URL degrees', async () => {
+  const server = createAppServer();
+  await listen(server, '127.0.0.1', 0);
+
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const payload = await extractMessage(baseUrl, [
+      '담당자',
+      '2026/09/01 PM 08:30',
+      '[업무요청] 테스트학생 입학요강',
+      '학교: University of Liverpool',
+      '전공: Data Science & AI',
+      '[https://www.liverpool.ac.uk/courses/data-science-and-artificial-intelligence-msc/2027-01](https://www.liverpool.ac.uk/courses/data-science-and-artificial-intelligence-msc/2027-01)',
+      '학교: Cardiff University',
+      '전공: Data Science & Analytics',
+      '[https://www.cardiff.ac.uk/study/postgraduate/taught/courses/course/data-science-and-analytics-msc-full-time-january-start](https://www.cardiff.ac.uk/study/postgraduate/taught/courses/course/data-science-and-analytics-msc-full-time-january-start)',
+      '학교: Aston University',
+      '학과: Smart Manufacturing',
+      '[https://www.aston.ac.uk/study/courses/smart-manufacturing-msc/january-2027](https://www.aston.ac.uk/study/courses/smart-manufacturing-msc/january-2027)'
+    ].join('\n'));
+
+    assert.deepEqual(
+      payload.extraction.programmes.map((programme) => ({
+        rawUniversityName: programme.rawUniversityName,
+        universityName: programme.universityName,
+        programmeNameOriginal: programme.programmeNameOriginal,
+        notionMajorNameProposed: programme.notionMajorNameProposed,
+        inferredDegreeLabel: programme.inferredDegreeLabel
+      })),
+      [
+        {
+          rawUniversityName: 'University of Liverpool',
+          universityName: 'Liverpool',
+          programmeNameOriginal: 'Data Science & AI',
+          notionMajorNameProposed: 'Data Science & AI MSc',
+          inferredDegreeLabel: 'MSc'
+        },
+        {
+          rawUniversityName: 'Cardiff University',
+          universityName: 'Cardiff',
+          programmeNameOriginal: 'Data Science & Analytics',
+          notionMajorNameProposed: 'Data Science & Analytics MSc',
+          inferredDegreeLabel: 'MSc'
+        },
+        {
+          rawUniversityName: 'Aston University',
+          universityName: 'Aston',
+          programmeNameOriginal: 'Smart Manufacturing',
+          notionMajorNameProposed: 'Smart Manufacturing MSc',
+          inferredDegreeLabel: 'MSc'
+        }
+      ]
+    );
+    assert.deepEqual(payload.extraction.extractionWarnings, []);
+    assert.deepEqual(payload.errors, {});
+  } finally {
+    await close(server);
+  }
+});
+
 test('mocked extraction classifies SOP requests without requiring programme data', async () => {
   const server = createAppServer();
   await listen(server, '127.0.0.1', 0);

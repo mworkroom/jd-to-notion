@@ -86,7 +86,7 @@ export function initializeNotionPreviewPanel({
 
     const preview = notionPreviewState?.sopReview;
     if (!preview) {
-      elements.sopMajorSelection.innerHTML = '<p class="muted">Notion 항목을 확인하면 입학요강 기록에서 학교·학과를 자동 선택합니다.</p>';
+      elements.sopMajorSelection.innerHTML = '<p class="muted">Notion 항목을 확인하면 직전 SOP 회차를 우선하고, 필요하면 입학요강 기록에서 학교·학과를 자동 선택합니다.</p>';
       return;
     }
     if (!preview.candidates?.length) {
@@ -145,7 +145,7 @@ export function initializeNotionPreviewPanel({
         `학생: ${requestState.studentName || '검토된 학생'} · ${clientMode === 'new' ? '신규 고객' : '기존 고객 우선'} 모드`,
         clientMode === 'new'
           ? '학교·학과: Jandi · Unknown 임시 항목을 사용합니다.'
-          : '학교·학과: 기존 학생의 입학요강 기록에서 자동 선택합니다.'
+          : '학교·학과: 직전 SOP 회차를 우선하고, 필요하면 입학요강 기록에서 자동 선택합니다.'
       ];
     }
 
@@ -246,6 +246,8 @@ export function initializeNotionPreviewPanel({
         paragraphWithLink(`대학: ${sopReview.selected.university.name} · 학과: `, sopReview.selected),
         paragraph(sopReview.selectionReason === 'placeholder'
           ? '학교·학과 미확인 · Notion에서 추후 수정'
+          : sopReview.selectionReason === 'previous-sop-round'
+          ? `SOP ${sopReview.selectionSourceRound}차 기록의 학교·학과를 기준으로 자동 선택했습니다.`
           : sopReview.selectionReason === 'admissions-1'
           ? '입학 요강 1 기록을 기준으로 자동 선택했습니다.'
           : sopReview.selectionReason === 'plain-as-first'
@@ -257,7 +259,7 @@ export function initializeNotionPreviewPanel({
     } else if (sopReview?.candidates?.length) {
       card.append(paragraph('후보가 여러 개라 학교·학과 선택이 필요합니다.'));
     } else {
-      card.append(paragraph('학생의 입학요강 작업 일지에서 연결 가능한 학과를 찾지 못했습니다.'));
+      card.append(paragraph('학생의 직전 SOP 또는 입학요강 작업 일지에서 연결 가능한 학과를 찾지 못했습니다.'));
     }
     return card;
   }

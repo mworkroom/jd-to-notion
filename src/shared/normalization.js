@@ -7,6 +7,9 @@ import {
 
 const SORTED_LABELS = [...DEGREE_LABELS, ...DEGREE_LABEL_TYPOS].sort((a, b) => b.length - a.length);
 const DEGREE_PATTERN = SORTED_LABELS.map(escapeRegExp).join('|');
+const URL_DEGREE_LABELS = new Map(
+  DEGREE_LABELS.map((label) => [label.toLowerCase(), label])
+);
 
 export function normalizeWhitespace(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -85,28 +88,77 @@ export function getMajorSearchKey(programmeName) {
   return normalizeForComparison(splitProgrammeName(programmeName).subject);
 }
 
-export function getProposedMajorName(programmeName) {
+export function getProposedMajorName(programmeName, fallbackDegreeLabel = null) {
   const normalized = normalizeWhitespace(programmeName);
   const parsed = splitProgrammeName(normalized);
+  const degreeLabel = parsed.degreeLabel ?? canonicalDegreeLabel(fallbackDegreeLabel);
 
-  if (!parsed.degreeLabel || !parsed.subject) {
+  if (!degreeLabel || !parsed.subject) {
     return normalized;
   }
 
   // Creation names keep the degree label, but normalize leading and parenthesized labels to the preferred end position.
-  return normalizeWhitespace(`${parsed.subject} ${parsed.degreeLabel}`);
+  return normalizeWhitespace(`${parsed.subject} ${degreeLabel}`);
+}
+
+export function getProgrammeUrlDegreeLabels(programmeUrl) {
+  const normalized = normalizeWhitespace(programmeUrl);
+  if (!normalized) {
+    return [];
+  }
+
+  try {
+    const pathname = decodeURIComponent(new URL(normalized).pathname).toLowerCase();
+    const labels = pathname
+      .split(/[^a-z0-9]+/u)
+      .map((token) => URL_DEGREE_LABELS.get(token))
+      .filter(Boolean);
+    return [...new Set(labels)];
+  } catch {
+    return [];
+  }
 }
 
 export function deriveProgrammeFields(programme) {
   const programmeNameOriginal = programme.programmeNameOriginal ?? '';
   const parsed = splitProgrammeName(programmeNameOriginal);
+  const urlDegreeLabels = getProgrammeUrlDegreeLabels(programme.programmeUrl);
+  const inferredDegreeLabel = !parsed.degreeLabel
+    && !parsed.ambiguous
+    && urlDegreeLabels.length === 1
+    ? urlDegreeLabels[0]
+    : null;
+  const degreeReviewReason = getDegreeReviewReason({ parsed, urlDegreeLabels });
 
   return {
     ...programme,
     majorSearchKey: getMajorSearchKey(programmeNameOriginal),
-    notionMajorNameProposed: getProposedMajorName(programmeNameOriginal),
-    needsMajorNameReview: parsed.ambiguous
+    notionMajorNameProposed: getProposedMajorName(programmeNameOriginal, inferredDegreeLabel),
+    inferredDegreeLabel,
+    urlDegreeLabels,
+    degreeReviewReason,
+    needsMajorNameReview: Boolean(degreeReviewReason)
   };
+}
+
+function getDegreeReviewReason({ parsed, urlDegreeLabels }) {
+  if (parsed.ambiguous) {
+    return 'programme-degree-ambiguous';
+  }
+  if (urlDegreeLabels.length > 1) {
+    return 'url-degree-ambiguous';
+  }
+  if (
+    parsed.degreeLabel
+    && urlDegreeLabels.length === 1
+    && parsed.degreeLabel !== urlDegreeLabels[0]
+  ) {
+    return 'programme-url-degree-conflict';
+  }
+  if (!parsed.degreeLabel && urlDegreeLabels.length === 0) {
+    return 'degree-missing';
+  }
+  return null;
 }
 
 export function suggestNextStudentName(baseName, existingNames = []) {

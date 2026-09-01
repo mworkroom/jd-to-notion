@@ -323,19 +323,20 @@ async function runSopPreflight({ request, repositories, agent }) {
     : await buildSopMajorCandidatePreview({
         repositories,
         studentId: selectedStudent.id,
-        selectedMajorId: request.selectedMajorId
+        selectedMajorId: request.selectedMajorId,
+        reviewRound: request.sopReview.round
       });
   if (request.selectedMajorId && sopReview.selectedMajorId !== request.selectedMajorId) {
     throw conflict(
       'SOP_MAJOR_SELECTION_INVALID',
-      'The selected Major is not one of the Student current admissions candidates.'
+      'The selected Major is not one of the Student current SOP or admissions candidates.'
     );
   }
   if (!sopReview.selected) {
     throw conflict(
       sopReview.candidates.length === 0 ? 'SOP_MAJOR_NOT_FOUND' : 'SOP_MAJOR_SELECTION_UNRESOLVED',
       sopReview.candidates.length === 0
-        ? 'No eligible Major was found in the Student admissions Work Logs.'
+        ? 'No eligible Major was found in the Student previous SOP or admissions Work Logs.'
         : 'The SOP Major selection is unresolved.'
     );
   }

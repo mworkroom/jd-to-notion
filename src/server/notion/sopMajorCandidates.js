@@ -1,21 +1,38 @@
 import { getMajorSearchKey, normalizeWhitespace } from '../../shared/normalization.js';
+import { REQUEST_SEASON } from '../../shared/workLog.js';
 
 const EXACT_FIRST_TITLE = '입학 요강 1';
 const PLAIN_TITLE = '입학 요강';
 const NUMBERED_TITLE_PATTERN = /^입학 요강\s+(\d+)$/u;
+const SOP_WORK_LOG_TITLE_PATTERN = /^SOP\s+([1-3])차\s+감수(?:\((?:영문|국문)\))?$/u;
 export const SOP_PLACEHOLDER_UNIVERSITY_NAME = 'Jandi';
 export const SOP_PLACEHOLDER_MAJOR_NAME = 'Unknown';
 
-export async function buildSopMajorCandidatePreview({ repositories, studentId, selectedMajorId = '' }) {
+export async function buildSopMajorCandidatePreview({
+  repositories,
+  studentId,
+  selectedMajorId = '',
+  reviewRound = 1,
+  requestSeason = REQUEST_SEASON
+}) {
   if (!studentId) {
     return emptyPreview();
   }
 
-  const workLogs = await repositories.workLogs.findAdmissionsLogsWithMajorsForStudent(studentId);
-  const eligibleLogs = workLogs.filter((workLog) => workLog.majorIds.length === 1);
+  const admissionsWorkLogs = await repositories.workLogs.findAdmissionsLogsWithMajorsForStudent(studentId);
+  const previousRound = Number(reviewRound) - 1;
+  const previousSopWorkLogs = previousRound >= 1
+    ? (await repositories.workLogs.findSopLogsWithMajorsForStudent(studentId)).filter((workLog) => (
+        workLog.requestSeason === requestSeason
+        && getSopRoundFromWorkLogTitle(workLog.title) === previousRound
+      ))
+    : [];
+  const eligibleAdmissionsLogs = admissionsWorkLogs.filter((workLog) => workLog.majorIds.length === 1);
+  const eligiblePreviousSopLogs = previousSopWorkLogs.filter((workLog) => workLog.majorIds.length === 1);
+  const candidateWorkLogs = [...eligibleAdmissionsLogs, ...eligiblePreviousSopLogs];
   const candidateMap = new Map();
 
-  for (const workLog of eligibleLogs) {
+  for (const workLog of candidateWorkLogs) {
     const majorId = workLog.majorIds[0];
     let candidate = candidateMap.get(majorId);
     if (!candidate) {
@@ -36,14 +53,20 @@ export async function buildSopMajorCandidatePreview({ repositories, studentId, s
     candidate.sourceWorkLogs.push({
       id: workLog.id,
       title: normalizeWhitespace(workLog.title),
+      category: workLog.category,
       createdTime: workLog.createdTime
     });
   }
 
   const candidates = [...candidateMap.values()].sort(compareCandidates);
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const admissionsCandidateIds = uniqueEligibleMajorIds(eligibleAdmissionsLogs, candidateIds);
   const requestedSelection = normalizeWhitespace(selectedMajorId);
-  const automaticSelection = selectDefaultMajorId(eligibleLogs, candidateIds, candidates);
+  const automaticSelection = selectPreviousSopMajorId(
+    previousSopWorkLogs,
+    candidateIds,
+    previousRound
+  ) ?? selectDefaultMajorId(eligibleAdmissionsLogs, candidateIds, admissionsCandidateIds);
   const resolvedSelection = requestedSelection && candidateIds.has(requestedSelection)
     ? { selectedMajorId: requestedSelection, selectionReason: 'manual' }
     : automaticSelection;
@@ -52,7 +75,9 @@ export async function buildSopMajorCandidatePreview({ repositories, studentId, s
     candidates,
     selectedMajorId: resolvedSelection.selectedMajorId,
     selectionReason: resolvedSelection.selectionReason,
-    skippedWorkLogCount: workLogs.length - eligibleLogs.length,
+    selectionSourceRound: resolvedSelection.selectionSourceRound ?? null,
+    skippedWorkLogCount: admissionsWorkLogs.length - eligibleAdmissionsLogs.length
+      + previousSopWorkLogs.length - eligiblePreviousSopLogs.length,
     selected: candidates.find((candidate) => candidate.id === resolvedSelection.selectedMajorId) ?? null
   };
 }
@@ -108,7 +133,7 @@ export async function buildSopPlaceholderMajorPreview({ repositories, selectedMa
   };
 }
 
-function selectDefaultMajorId(workLogs, candidateIds, candidates) {
+function selectDefaultMajorId(workLogs, candidateIds, admissionsCandidateIds) {
   const firstIds = uniqueEligibleMajorIds(
     workLogs.filter((workLog) => normalizeWhitespace(workLog.title) === EXACT_FIRST_TITLE),
     candidateIds
@@ -129,11 +154,32 @@ function selectDefaultMajorId(workLogs, candidateIds, candidates) {
     }
   }
 
-  if (candidates.length === 1) {
-    return { selectedMajorId: candidates[0].id, selectionReason: 'single-candidate' };
+  if (admissionsCandidateIds.length === 1) {
+    return { selectedMajorId: admissionsCandidateIds[0], selectionReason: 'single-candidate' };
   }
 
   return { selectedMajorId: null, selectionReason: null };
+}
+
+function selectPreviousSopMajorId(workLogs, candidateIds, previousRound) {
+  if (previousRound < 1
+    || workLogs.length === 0
+    || workLogs.some((workLog) => workLog.majorIds.length !== 1)) {
+    return null;
+  }
+
+  const majorIds = uniqueEligibleMajorIds(workLogs, candidateIds);
+  return majorIds.length === 1
+    ? {
+        selectedMajorId: majorIds[0],
+        selectionReason: 'previous-sop-round',
+        selectionSourceRound: previousRound
+      }
+    : null;
+}
+
+function getSopRoundFromWorkLogTitle(title) {
+  return Number(normalizeWhitespace(title).match(SOP_WORK_LOG_TITLE_PATTERN)?.[1] ?? 0);
 }
 
 function uniqueEligibleMajorIds(workLogs, candidateIds) {
@@ -157,6 +203,7 @@ function emptyPreview() {
     candidates: [],
     selectedMajorId: null,
     selectionReason: null,
+    selectionSourceRound: null,
     skippedWorkLogCount: 0,
     selected: null
   };

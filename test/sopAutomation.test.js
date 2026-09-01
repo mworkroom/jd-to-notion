@@ -65,6 +65,80 @@ test('SOP Major treats one plain admissions log as first only when numbered 2+ e
   assert.equal(preview.selectionReason, 'plain-as-first');
 });
 
+test('SOP Major prefers the immediately previous SOP round and keeps manual override available', async () => {
+  const admissionsLogs = [
+    workLog('admissions-1', '입학 요강 1', 'major-a'),
+    workLog('admissions-2', '입학 요강 2', 'major-b')
+  ];
+  const sopLogs = [
+    sopWorkLog('sop-1', 1, '영문', 'major-b'),
+    sopWorkLog('sop-2', 2, '국문', 'major-a')
+  ];
+  const repositories = makeCandidateRepositories(admissionsLogs, sopLogs);
+
+  const secondRound = await buildSopMajorCandidatePreview({
+    repositories,
+    studentId: 'student-1',
+    reviewRound: 2
+  });
+  assert.equal(secondRound.selectedMajorId, 'major-b');
+  assert.equal(secondRound.selectionReason, 'previous-sop-round');
+  assert.equal(secondRound.selectionSourceRound, 1);
+
+  const thirdRound = await buildSopMajorCandidatePreview({
+    repositories,
+    studentId: 'student-1',
+    reviewRound: 3
+  });
+  assert.equal(thirdRound.selectedMajorId, 'major-a');
+  assert.equal(thirdRound.selectionReason, 'previous-sop-round');
+  assert.equal(thirdRound.selectionSourceRound, 2);
+
+  const manuallyChanged = await buildSopMajorCandidatePreview({
+    repositories,
+    studentId: 'student-1',
+    selectedMajorId: 'major-a',
+    reviewRound: 2
+  });
+  assert.equal(manuallyChanged.selectedMajorId, 'major-a');
+  assert.equal(manuallyChanged.selectionReason, 'manual');
+});
+
+test('SOP Major falls back to admissions rules when the previous round is ambiguous', async () => {
+  const preview = await buildSopMajorCandidatePreview({
+    repositories: makeCandidateRepositories(
+      [workLog('admissions-1', '입학 요강 1', 'major-a')],
+      [
+        sopWorkLog('sop-1-a', 1, '영문', 'major-a'),
+        sopWorkLog('sop-1-b', 1, '국문', 'major-b')
+      ]
+    ),
+    studentId: 'student-1',
+    reviewRound: 2
+  });
+
+  assert.equal(preview.selectedMajorId, 'major-a');
+  assert.equal(preview.selectionReason, 'admissions-1');
+});
+
+test('SOP Major does not treat an incomplete previous round as a unique fallback candidate', async () => {
+  const preview = await buildSopMajorCandidatePreview({
+    repositories: makeCandidateRepositories([], [
+      sopWorkLog('sop-1-valid', 1, '영문', 'major-a'),
+      {
+        ...sopWorkLog('sop-1-missing-major', 1, '국문', 'major-b'),
+        majorIds: []
+      }
+    ]),
+    studentId: 'student-1',
+    reviewRound: 2
+  });
+
+  assert.equal(preview.selectedMajorId, null);
+  assert.equal(preview.selectionReason, null);
+  assert.deepEqual(preview.candidates.map((candidate) => candidate.id), ['major-a']);
+});
+
 test('SOP creation reuses Student and Major and creates exactly one Work Log', async () => {
   const created = [];
   const updated = [];
@@ -251,11 +325,14 @@ test('SOP creation creates a new Agent-linked Student and reuses Jandi Unknown',
   }]);
 });
 
-function makeCandidateRepositories(logs) {
+function makeCandidateRepositories(logs, sopLogs = []) {
   return {
     workLogs: {
       async findAdmissionsLogsWithMajorsForStudent() {
         return logs;
+      },
+      async findSopLogsWithMajorsForStudent() {
+        return sopLogs;
       }
     },
     majors: {
@@ -308,6 +385,17 @@ function workLog(id, title, majorId) {
     title,
     category: '입학 요강',
     majorIds: [majorId],
+    createdTime: id
+  };
+}
+
+function sopWorkLog(id, round, language, majorId) {
+  return {
+    id,
+    title: `SOP ${round}차 감수(${language})`,
+    category: `SOP 감수(${language})`,
+    majorIds: [majorId],
+    requestSeason: '2026/27',
     createdTime: id
   };
 }

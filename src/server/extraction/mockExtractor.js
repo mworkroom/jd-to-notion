@@ -227,6 +227,25 @@ function extractProgrammes(lines) {
       continue;
     }
 
+    const labeledUniversityName = extractLabeledValue(line, ['학교']);
+    if (labeledUniversityName !== null) {
+      if (labeledUniversityName) {
+        addMissingUrlWarning(warnings, currentUniversityName, pendingProgrammeName);
+        currentUniversityName = normalizeUniversityHeader(labeledUniversityName);
+        pendingProgrammeName = '';
+      }
+      continue;
+    }
+
+    const labeledProgrammeName = extractLabeledValue(line, ['전공', '학과']);
+    if (labeledProgrammeName !== null) {
+      if (labeledProgrammeName) {
+        addMissingUrlWarning(warnings, currentUniversityName, pendingProgrammeName);
+        pendingProgrammeName = stripProgrammeBullet(labeledProgrammeName);
+      }
+      continue;
+    }
+
     const universityProgramme = splitUniversityProgrammeLine(line);
     if (universityProgramme) {
       addMissingUrlWarning(warnings, currentUniversityName, pendingProgrammeName);
@@ -328,6 +347,14 @@ function extractProgrammeNameFromUrlLine(line, urlInfo) {
   const beforeUrl = normalizeWhitespace(String(line ?? '').replace(urlInfo.url, ''));
   const withoutMarkdownSyntax = beforeUrl.replace(/[\[\]()]/g, '');
   return stripProgrammeBullet(withoutMarkdownSyntax);
+}
+
+function extractLabeledValue(value, labels) {
+  const labelPattern = labels.map(escapeRegExp).join('|');
+  const match = normalizeWhitespace(value).match(
+    new RegExp(`^(?:${labelPattern})\\s*[:：]\\s*(.*)$`, 'u')
+  );
+  return match ? normalizeWhitespace(match[1]) : null;
 }
 
 function splitUniversityProgrammeLine(value) {

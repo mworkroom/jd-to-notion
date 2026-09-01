@@ -61,6 +61,26 @@ test('template inspection requires the registered SHA-256 and all structural mar
   }
 });
 
+test('template inspection reports a stale admissions-cycle filename', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'word-template-cycle-'));
+  const templatePath = path.join(directory, '[2026입학요강] 자동생성용.docx');
+  const template = createWordTemplateFixture();
+  await writeFile(templatePath, template);
+
+  try {
+    const result = await inspectWordTemplate({
+      templatePath,
+      templateSha256: sha256(template),
+      filenamePrefix: '[2027입학요강]'
+    });
+
+    assert.equal(result.valid, false);
+    assert.ok(result.issues.some((item) => item.code === 'WORD_TEMPLATE_CYCLE_MISMATCH'));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('template inspection blocks duplicate, missing, and fixed-area marker defects', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'word-template-defect-'));
 
@@ -108,6 +128,7 @@ test('DOCX generation clones the full admissions block and preserves untouched p
   const generatedZip = new AdmZip(result);
   const header = generatedZip.readAsText('word/header1.xml');
   const document = generatedZip.readAsText('word/document.xml');
+  const relationships = generatedZip.readAsText('word/_rels/document.xml.rels');
 
   assert.match(header, /<w:t>\[학사\] <\/w:t>/);
   assert.match(header, /<w:t>Nutrition<\/w:t>/);
@@ -122,12 +143,34 @@ test('DOCX generation clones the full admissions block and preserves untouched p
   assert.match(document, /Nutrition &amp; Policy MA/);
   assert.match(document, /Food &lt;Systems&gt; MSc/);
   assert.match(document, /course\?a=1&amp;b=2/);
+  const generatedRuns = [...document.matchAll(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g)]
+    .map((match) => match[0]);
+  for (const majorName of [
+    'Clinical Nutrition MSc',
+    'Nutrition &amp; Policy MA',
+    'Food &lt;Systems&gt; MSc'
+  ]) {
+    assert.ok(generatedRuns.some((runXml) => (
+      runXml.includes('<w:b/>') && runXml.includes(`<w:t>${majorName}</w:t>`)
+    )));
+  }
+  assert.equal((document.match(/<w:hyperlink r:id="rIdGeneratedHyperlink\d+" w:history="1">/g) ?? []).length, 3);
+  assert.equal((document.match(/<w:color w:val="0563C1"\/><w:u w:val="single"\/>/g) ?? []).length, 3);
+  assert.match(
+    relationships,
+    /<Relationship Id="rId1" Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/styles" Target="styles\.xml"\/>/
+  );
+  assert.match(
+    relationships,
+    /<Relationship Id="rIdGeneratedHyperlink1" Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/hyperlink" Target="https:\/\/example\.com\/course\?a=1&amp;b=2" TargetMode="External"\/>/
+  );
+  assert.match(relationships, /Id="rIdGeneratedHyperlink2"[^>]+Target="https:\/\/example\.com\/york\?x=1&amp;y=2"[^>]+TargetMode="External"/);
+  assert.match(relationships, /Id="rIdGeneratedHyperlink3"[^>]+Target="https:\/\/example\.com\/kcl"[^>]+TargetMode="External"/);
   assert.doesNotMatch(document, /\[\[(UNIVERSITY|PROGRAMME|URL)\]\]/);
   assert.doesNotMatch(header, /\[\[(DEGREE_PREFIX|PROGRAMME_LABEL|STUDENT_NAME)\]\]/);
 
   for (const entryName of [
     '[Content_Types].xml',
-    'word/_rels/document.xml.rels',
     'word/styles.xml',
     'word/numbering.xml',
     'word/theme/theme1.xml'
@@ -169,6 +212,14 @@ test('service saves without overwriting and blocks generation while the flag is 
         outputDir: directory
       }
     });
+    await assert.rejects(
+      enabled.generate({
+        ...validRequest,
+        filename: '[2027입학요강] 김윤지 B님_Nutrition.docx'
+      }),
+      (error) => error instanceof WordGenerationError
+        && error.code === 'WORD_FILENAME_CYCLE_MISMATCH'
+    );
     const result = await enabled.generate(validRequest);
     assert.equal(result.filename, '[2026입학요강] 김윤지 B님_Nutrition (2).docx');
     assert.equal(await readFile(path.join(directory, validRequest.filename), 'utf8'), 'existing');

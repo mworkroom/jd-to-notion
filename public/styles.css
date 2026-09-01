@@ -123,6 +123,12 @@ input:focus {
   margin: 0;
 }
 
+.app-context {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
 .section {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1029,6 +1035,10 @@ label textarea {
   .app-header {
     align-items: start;
     display: grid;
+  }
+
+  .app-context {
+    text-align: left;
   }
 
   .form-grid,

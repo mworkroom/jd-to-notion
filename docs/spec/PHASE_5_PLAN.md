@@ -135,7 +135,7 @@ C:\Users\Marion\Documents\EDM\[2026입학요강] Template.docx
 |---|---|---|
 | 학교명 | 담당자 원문의 학교명 | 별도 미화나 `2026/27 entry` 추가 없이 그대로 사용 |
 | 전공명 | 검토 화면에서 확정된 Notion용 Major 이름 | 기존 Major가 매칭되면 기존 Notion 이름, 새 Major 후보이면 검토·확정한 생성 예정 이름 |
-| URL | 담당자 원문의 URL | 보이는 문자열을 그대로 넣고 하이퍼링크를 만들지 않음 |
+| URL | 담당자 원문의 URL | 보이는 문자열을 그대로 유지하면서 클릭 가능한 외부 하이퍼링크로 생성 |
 
 전공명은 더 이상 `programmeNameOriginal`을 직접 사용하지 않는다. Notion 쓰기 실행 여부와 관계없이 검토 화면에서 확정된 Notion용 Major 이름을 해당 원문 전공과 연결하여 사용한다.
 
@@ -154,10 +154,11 @@ DOCX를 새로 조립하거나 Word 객체 모델에서 표와 문단을 다시 
 2. DOCX ZIP 패키지에서 필요한 XML만 연다.
 3. `word/header1.xml`의 마커 텍스트 노드만 치환한다.
 4. `word/document.xml`에서 프로토타입 블록 전체를 전공 수만큼 복제한다.
-5. 각 복제 블록에서 학교명, 최종 Notion 전공명, URL 마커의 텍스트 노드만 치환한다.
-6. 입학요강 표는 표 전체 XML을 복제한다.
-7. SOP·참고 영역은 한 번만 남긴다.
-8. 수정한 패키지를 임시 파일에 완성한 뒤 최종 위치로 원자적으로 이동한다.
+5. 각 복제 블록에서 학교명과 최종 Notion 전공명을 치환하고, 전공명 run에는 굵기를 적용한다.
+6. URL 마커는 보이는 원문 URL을 유지한 외부 하이퍼링크로 치환하고 `word/_rels/document.xml.rels`에 고유 관계를 추가한다.
+7. 입학요강 표는 표 전체 XML을 복제한다.
+8. SOP·참고 영역은 한 번만 남긴다.
+9. 수정한 패키지를 임시 파일에 완성한 뒤 최종 위치로 원자적으로 이동한다.
 
 다음 요소는 재생성하거나 정규화하지 않는다.
 
@@ -169,7 +170,7 @@ DOCX를 새로 조립하거나 Word 객체 모델에서 표와 문단을 다시 
 - section, header, footer 관계
 - Enter와 Shift+Enter의 구분
 
-URL은 일반 텍스트이므로 hyperlink relationship을 추가하지 않는다.
+URL은 `document.xml`의 `w:hyperlink` 요소와 `document.xml.rels`의 외부 관계를 함께 생성한다.
 
 ## 7. 템플릿 검증
 
@@ -301,7 +302,8 @@ JANDI 요청 추출
 - 과정 변경 시 `[학사]`
 - 검토·확정된 Notion용 Major 이름 사용
 - 원문 학교명과 URL 보존
-- URL hyperlink relationship 미생성
+- 전공명 bold run 생성
+- URL별 고유 hyperlink relationship 생성
 - XML 특수문자와 긴 URL 처리
 
 ### 12.3 서식 보존
@@ -340,7 +342,7 @@ Phase 5에서 다음은 구현하지 않는다.
 - 입학요강 표 내용 자동 조사·입력
 - 학부·석사 자동 판별
 - 담당자 원문 학교명 미화
-- URL 자동 수정 또는 hyperlink 생성
+- URL 자동 수정
 - PDF 결과물 제공
 - ZIP 묶음 생성
 - Word 자동 실행

@@ -83,6 +83,88 @@ test('blocks arming when a different registered Student name is in the attachmen
   }
 });
 
+test('arms before triggering JANDI and renames an automatically downloaded SOP PDF', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sop-download-pdf-'));
+  const calls = [];
+  const service = testService(directory, {
+    triggerJandiDownload: async ({ filename }) => {
+      calls.push(filename);
+      await writeFile(path.join(directory, filename), 'pdf');
+      return { status: 'triggered', reason: '', filename };
+    }
+  });
+
+  try {
+    const armed = await service.arm({
+      studentName: '은주하',
+      message: 'Personal Statement final.pdf'
+    });
+    const completed = await waitForTerminal(service, armed.id);
+
+    assert.deepEqual(calls, ['Personal Statement final.pdf']);
+    assert.equal(armed.autoDownloadStatus, 'triggered');
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.filename, '은주하_Personal Statement final.pdf');
+  } finally {
+    service.cancel();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('keeps multiple SOP attachments armed for manual selection without clicking JANDI', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sop-download-manual-'));
+  let triggerCount = 0;
+  const service = testService(directory, {
+    triggerJandiDownload: async () => {
+      triggerCount += 1;
+      return { status: 'triggered', reason: '' };
+    }
+  });
+
+  try {
+    const armed = await service.arm({
+      studentName: '은주하',
+      message: ['SOP old.docx', 'SOP final.docx'].join('\n')
+    });
+
+    assert.equal(armed.status, 'armed');
+    assert.equal(armed.autoDownloadStatus, 'manual');
+    assert.equal(armed.autoDownloadReason, 'multiple_sop_candidates');
+    assert.deepEqual(armed.attachmentNames, ['SOP old.docx', 'SOP final.docx']);
+    assert.equal(triggerCount, 0);
+  } finally {
+    service.cancel();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('rearms the watcher after edits without clicking the JANDI attachment again', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sop-download-rearm-'));
+  let triggerCount = 0;
+  const service = testService(directory, {
+    triggerJandiDownload: async () => {
+      triggerCount += 1;
+      return { status: 'triggered', reason: '' };
+    }
+  });
+
+  try {
+    const armed = await service.arm({
+      studentName: '은주하',
+      message: 'Personal Statement final.docx',
+      autoDownload: false
+    });
+
+    assert.equal(armed.status, 'armed');
+    assert.equal(armed.autoDownloadStatus, 'watching');
+    assert.equal(armed.autoDownloadReason, 'rearmed_without_click');
+    assert.equal(triggerCount, 0);
+  } finally {
+    service.cancel();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 function testService(directory, options = {}) {
   return createSopDownloadService({
     downloadsDirectory: directory,

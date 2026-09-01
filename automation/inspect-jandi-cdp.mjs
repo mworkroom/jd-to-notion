@@ -1,8 +1,10 @@
 import net from 'node:net';
 import crypto from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { restoreLinkedUrls } from './jandi-message-text.mjs';
-import { extractDocxAttachmentNames } from '../src/shared/sopFilename.js';
+import { extractSopAttachmentNames } from '../src/shared/sopFilename.js';
 import {
   JANDI_COMMENT_MARKER,
   JANDI_PARENT_MARKER,
@@ -11,7 +13,16 @@ import {
 
 const endpoint = process.argv.find((argument) => argument.startsWith('http')) ?? 'http://127.0.0.1:9222';
 const extractMode = process.argv.includes('--extract');
+const listAttachmentsMode = process.argv.includes('--list-attachments');
+const listPostId = process.argv.find((argument) => argument.startsWith('--post='))?.slice(7) ?? '';
 const outputPath = process.argv.find((argument) => argument.startsWith('--output='))?.slice(9);
+const downloadFilename = process.argv.find((argument) => argument.startsWith('--download='))?.slice(11);
+const defaultContextPath = fileURLToPath(
+  new URL('../.local/jandi-source-context.json', import.meta.url)
+);
+const contextPath = process.argv
+  .find((argument) => argument.startsWith('--context='))?.slice(10)
+  ?? defaultContextPath;
 const targets = await (await fetch(`${endpoint}/json/list`)).json();
 const target = targets.find((item) => item.type === 'page' && item.url?.includes('edmworks.jandi.com/app'));
 
@@ -20,6 +31,17 @@ if (!target) {
 }
 
 const client = await connectWebSocket(target.webSocketDebuggerUrl);
+if (listAttachmentsMode) {
+  console.log(JSON.stringify(await listVisibleAttachments(client, listPostId), null, 2));
+  client.close();
+  process.exit(0);
+}
+if (downloadFilename) {
+  await clickStoredAttachment({ client, contextPath, filename: downloadFilename });
+  client.close();
+  process.exit(0);
+}
+
 const restoreLinkedUrlsSource = restoreLinkedUrls.toString();
 const formatJandiCommentMessageSource = formatJandiCommentMessage.toString();
 const expression = extractMode
@@ -30,6 +52,19 @@ const expression = extractMode
       const formatJandiCommentMessage = ${formatJandiCommentMessageSource};
       const hovered = (element) => element.matches(':hover') || Boolean(element.querySelector(':hover'));
       const readVisibleText = (element) => String(element?.innerText ?? element?.textContent ?? '').trim();
+      const readAttachmentText = (container) => {
+        const commentContainer = container?.matches('.comment-item.article-comment') ? container : null;
+        return [...(container?.querySelectorAll(
+          'a, button, [role="button"], [class*="file"], [class*="attach"]'
+        ) ?? [])]
+        .filter((element) => commentContainer
+          ? element.closest('.comment-item.article-comment') === commentContainer
+          : !element.closest('.comment-item.article-comment'))
+        .flatMap((element) => String(element.innerText ?? element.textContent ?? '').split(/\\r?\\n/))
+        .map((line) => line.trim())
+        .filter((line) => /\\.(?:docx|pdf)(?:\\s|$)/i.test(line))
+        .join('\\n');
+      };
       const readMessage = (container, bodySelector, dateSelector = '.article-date, .fn-write-time') => {
         const writer = readVisibleText(container?.querySelector('.fn-user-name'));
         const date = readVisibleText(container?.querySelector(dateSelector));
@@ -44,30 +79,34 @@ const expression = extractMode
         const parent = comment.closest('.message.article._message');
         const commentMessage = readMessage(comment, '.comment-text-box', '.fn-write-time');
         const parentMessage = readMessage(parent, '.article-body._messageBubbleTarget');
-        const attachmentText = [...comment.querySelectorAll('a, button, [role="button"], [class*="file"], [class*="attach"]')]
-          .flatMap((element) => String(element.innerText ?? element.textContent ?? '').split(/\\r?\\n/))
-          .map((line) => line.trim())
-          .filter((line) => /\\.docx(?:\\s|$)/i.test(line))
-          .join('\\n');
+        const parentCards = [...document.querySelectorAll('.message.article._message')];
+        const comments = [...(parent?.querySelectorAll('.comment-item.article-comment') ?? [])];
         return {
           message: formatJandiCommentMessage({ commentMessage, parentMessage }),
-          attachmentText,
-          sourceType: 'comment'
+          attachmentText: readAttachmentText(comment),
+          sourceType: 'comment',
+          locator: {
+            sourceType: 'comment',
+            postId: parent?.id ?? '',
+            postIndex: parentCards.indexOf(parent),
+            commentIndex: comments.indexOf(comment)
+          }
         };
       }
       const cards = [...document.querySelectorAll('.message.article._message')];
       const card = cards.find(hovered);
       if (!card) return null;
       const message = readMessage(card, '.article-body._messageBubbleTarget');
-      const attachmentText = [...card.querySelectorAll('a, button, [role="button"], [class*="file"], [class*="attach"]')]
-        .flatMap((element) => String(element.innerText ?? element.textContent ?? '').split(/\\r?\\n/))
-        .map((line) => line.trim())
-        .filter((line) => /\\.docx(?:\\s|$)/i.test(line))
-        .join('\\n');
       return {
         message,
-        attachmentText,
-        sourceType: 'post'
+        attachmentText: readAttachmentText(card),
+        sourceType: 'post',
+        locator: {
+          sourceType: 'post',
+          postId: card.id ?? '',
+          postIndex: cards.indexOf(card),
+          commentIndex: -1
+        }
       };
     })()`
   : `(() => {
@@ -152,7 +191,7 @@ const result = await client.call('Runtime.evaluate', {
 const value = result.result?.result?.value;
 if (extractMode) {
   const extractedMessage = typeof value === 'string' ? value : value?.message ?? '';
-  const attachmentNames = extractDocxAttachmentNames([
+  const attachmentNames = extractSopAttachmentNames([
     extractedMessage,
     typeof value === 'object' ? value?.attachmentText : ''
   ].filter(Boolean).join('\n'));
@@ -161,13 +200,157 @@ if (extractMode) {
     ...attachmentNames.filter((filename) => !extractedMessage.includes(filename))
   ].filter(Boolean).join('\n');
 
-  if (!completeMessage) process.exitCode = 2;
-  else if (outputPath) writeFileSync(outputPath, completeMessage, 'utf8');
-  else console.log(completeMessage);
+  if (!completeMessage) {
+    process.exitCode = 2;
+  } else {
+    if (value?.locator) {
+      mkdirSync(path.dirname(contextPath), { recursive: true });
+      writeFileSync(contextPath, JSON.stringify({
+        version: 1,
+        capturedAt: new Date().toISOString(),
+        targetUrl: target.url,
+        messageSha256: sha256(completeMessage),
+        locator: value.locator,
+        attachmentNames
+      }, null, 2), 'utf8');
+    }
+    if (outputPath) writeFileSync(outputPath, completeMessage, 'utf8');
+    else console.log(completeMessage);
+  }
 } else {
   console.log(JSON.stringify(value ?? result, null, 2));
 }
 client.close();
+
+async function listVisibleAttachments(client, postId = '') {
+  const expression = [
+    '(() => {',
+    'const requestedPostId = ' + JSON.stringify(postId) + ';',
+    "const cards = [...document.querySelectorAll('.message.article._message')];",
+    "const attachmentSelector = 'a,button,[role=\"button\"],[class*=\"file\"],[class*=\"attach\"]';",
+    "const filenamePattern = /[^\\r\\n]*\\.(?:docx|pdf)(?=\\s|$)/ig;",
+    'return cards.filter((card) => !requestedPostId || card.id === requestedPostId).map((card) => {',
+    'const postIndex = cards.indexOf(card);',
+    'const rect = card.getBoundingClientRect();',
+    "const describeAction = (action) => ({ tagName: action.tagName, className: String(action.className ?? '').slice(0, 180), href: action.getAttribute('href'), ngClick: action.getAttribute('ng-click'), title: action.getAttribute('title'), ariaLabel: action.getAttribute('aria-label') });",
+    "const describe = (element) => ({ tagName: element.tagName, className: String(element.className ?? '').slice(0, 180), href: element.getAttribute('href'), ngClick: element.getAttribute('ng-click'), handlerSource: element.getAttribute('ng-click') ? String(window.angular?.element(element).scope()?.onPreviewClick ?? '').slice(0, 2000) : null, role: element.getAttribute('role'), title: element.getAttribute('title'), ariaLabel: element.getAttribute('aria-label'), parentClassName: String(element.parentElement?.className ?? '').slice(0, 180), actions: [...element.querySelectorAll('[ng-click],a[href],button,[role=\"button\"]')].map(describeAction), filenames: String(element.innerText ?? element.textContent ?? '').match(filenamePattern) ?? [] });",
+    "const elements = [...card.querySelectorAll(attachmentSelector)].filter((element) => !element.closest('.comment-item.article-comment')).map(describe).filter((entry) => entry.filenames.length > 0);",
+    "const comments = [...card.querySelectorAll('.comment-item.article-comment')].map((comment, commentIndex) => ({ commentIndex, elements: [...comment.querySelectorAll(attachmentSelector)].filter((element) => element.closest('.comment-item.article-comment') === comment).map(describe).filter((entry) => entry.filenames.length > 0) })).filter((entry) => entry.elements.length > 0);",
+    "return { postId: card.id ?? '', postIndex, visible: rect.width > 0 && rect.height > 0, elements, comments };",
+    '}).filter((entry) => entry.elements.length > 0 || entry.comments.length > 0);',
+    '})()'
+  ].join('\n');
+  const result = await client.call('Runtime.evaluate', { expression, returnByValue: true });
+  return result.result?.result?.value ?? [];
+}
+
+async function clickStoredAttachment({ client, contextPath, filename }) {
+  const context = JSON.parse(readFileSync(contextPath, 'utf8'));
+  const expression = [
+    '(() => {',
+    'const locator = ' + JSON.stringify(context.locator ?? {}) + ';',
+    'const expectedFilename = ' + JSON.stringify(filename) + ';',
+    "const cards = [...document.querySelectorAll('.message.article._message')];",
+    'const card = locator.postId ? document.getElementById(locator.postId) : cards[locator.postIndex];',
+    "if (!card || !card.matches('.message.article._message')) return { status: 'not_found', reason: 'source_post_not_found' };",
+    "const source = locator.sourceType === 'comment' ? [...card.querySelectorAll('.comment-item.article-comment')][locator.commentIndex] : card;",
+    "if (!source) return { status: 'not_found', reason: 'source_comment_not_found' };",
+    "const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim().toLowerCase();",
+    'const expected = normalize(expectedFilename);',
+    "const primaryClickableSelector = '[ng-click*=\"onPreviewClick\"],a[href],button,[role=\"button\"],[ng-click]';",
+    "const clickableSelector = 'a[href],button,[role=\"button\"],[ng-click],[class*=\"file\"],[class*=\"attach\"]';",
+    "const scopedElements = [...source.querySelectorAll('*')].filter((element) => locator.sourceType === 'comment' ? element.closest('.comment-item.article-comment') === source : !element.closest('.comment-item.article-comment'));",
+    "const textMatches = scopedElements.filter((element) => normalize(element.innerText ?? element.textContent).includes(expected)).sort((left, right) => normalize(left.innerText ?? left.textContent).length - normalize(right.innerText ?? right.textContent).length);",
+    'for (const match of textMatches) {',
+    'const clickable = match.matches(primaryClickableSelector) ? match : match.querySelector(primaryClickableSelector) ?? (match.matches(clickableSelector) ? match : match.closest(clickableSelector) ?? match.querySelector(clickableSelector));',
+    'if (!clickable || !source.contains(clickable)) continue;',
+    "clickable.scrollIntoView({ block: 'center', inline: 'nearest' });",
+    'const rect = clickable.getBoundingClientRect();',
+    'if (rect.width <= 0 || rect.height <= 0) continue;',
+    "return { status: 'ready', x: rect.left + (rect.width / 2), y: rect.top + (rect.height / 2), tagName: clickable.tagName, className: String(clickable.className ?? '').slice(0, 160) };",
+    '}',
+    "return { status: 'not_found', reason: 'attachment_element_not_found' };",
+    '})()'
+  ].join('\n');
+  const located = await client.call('Runtime.evaluate', {
+    expression,
+    returnByValue: true
+  });
+  const result = located.result?.result?.value;
+  if (result?.status !== 'ready') {
+    const error = new Error(result?.reason ?? 'attachment_element_not_found');
+    error.code = 'JANDI_ATTACHMENT_NOT_FOUND';
+    throw error;
+  }
+  await client.call('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: result.x,
+    y: result.y,
+    button: 'left',
+    clickCount: 1
+  });
+  await client.call('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: result.x,
+    y: result.y,
+    button: 'left',
+    clickCount: 1
+  });
+  await wait(650);
+  const viewerDownload = await locateViewerDownload(client, filename);
+  if (viewerDownload?.status === 'ready') {
+    await client.call('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: viewerDownload.x,
+      y: viewerDownload.y,
+      button: 'left',
+      clickCount: 1
+    });
+    await client.call('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: viewerDownload.x,
+      y: viewerDownload.y,
+      button: 'left',
+      clickCount: 1
+    });
+  }
+  console.log(JSON.stringify({
+    status: 'clicked',
+    filename,
+    viewerDownloadClicked: viewerDownload?.status === 'ready'
+  }));
+}
+
+async function locateViewerDownload(client, filename) {
+  const expression = [
+    '(() => {',
+    'const expectedFilename = ' + JSON.stringify(filename) + ';',
+    "const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim().toLowerCase();",
+    "const actionSelector = '[ng-click],[data-ng-click],a[href],button,[role=\"button\"],[title],[aria-label]';",
+    "const downloadHint = /download|다운로드|file.*down|cloudfrontdown/i;",
+    'const expected = normalize(expectedFilename);',
+    "const visible = (element) => { const rect = element.getBoundingClientRect(); const style = getComputedStyle(element); return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'; };",
+    "const descriptor = (element) => [element.innerText, element.textContent, element.className, element.id, element.getAttribute('ng-click'), element.getAttribute('data-ng-click'), element.getAttribute('title'), element.getAttribute('aria-label')].filter(Boolean).join(' ');",
+    "const viewerRoots = [...document.querySelectorAll('[role=\"dialog\"],[class*=\"viewer\"],[class*=\"modal\"],[class*=\"preview\"]')].filter(visible).filter((element) => normalize(element.innerText ?? element.textContent).includes(expected));",
+    'const candidates = viewerRoots.flatMap((root) => [...root.querySelectorAll(actionSelector)]).filter(visible).filter((element) => downloadHint.test(descriptor(element)));',
+    'const action = candidates.sort((left, right) => descriptor(left).length - descriptor(right).length)[0];',
+    "if (!action) return { status: 'not_found' };",
+    "action.scrollIntoView({ block: 'center', inline: 'nearest' });",
+    'const rect = action.getBoundingClientRect();',
+    "return { status: 'ready', x: rect.left + (rect.width / 2), y: rect.top + (rect.height / 2) };",
+    '})()'
+  ].join('\n');
+  const result = await client.call('Runtime.evaluate', { expression, returnByValue: true });
+  return result.result?.result?.value ?? { status: 'not_found' };
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(String(value ?? '').trim()).digest('hex');
+}
 
 async function connectWebSocket(webSocketUrl) {
   const url = new URL(webSocketUrl);

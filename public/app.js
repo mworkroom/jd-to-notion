@@ -1,6 +1,10 @@
 ﻿import { calculateWeekdayDeadline } from '/shared/deadline.js';
 import { generateProgrammeLabel } from '/shared/filename.js';
-import { ADMISSIONS_CATEGORY, REQUEST_SEASON, getNextWorkLogTitles } from '/shared/workLog.js';
+import { ADMISSIONS_CATEGORY, getNextWorkLogTitles } from '/shared/workLog.js';
+import {
+  ADMISSIONS_CYCLE,
+  ADMISSIONS_FILENAME_PREFIX
+} from '/runtime-config.js';
 import {
   SOP_REQUEST_TYPE,
   getSopCategory,
@@ -42,8 +46,11 @@ const elements = {
   workLogTitle: document.querySelector('#work-log-title'),
   deadline: document.querySelector('#deadline'),
   category: document.querySelector('#category'),
-  requestSeason: document.querySelector('#request-season')
+  requestSeason: document.querySelector('#request-season'),
+  admissionsCycleNote: document.querySelector('#admissions-cycle-note')
 };
+
+elements.admissionsCycleNote.textContent = `현재 기준: ${ADMISSIONS_CYCLE} · ${ADMISSIONS_FILENAME_PREFIX}`;
 
 const requestReviewPanel = initializeRequestReviewPanel({
   getContext: () => ({ requestState }),
@@ -309,7 +316,7 @@ function renderDerivedOutput() {
     elements.workLogTitle.value = title;
     elements.deadline.value = calculateWeekdayDeadline(requestState.requestDateTime);
     elements.category.value = getSopCategory(requestState.sopReview?.language);
-    elements.requestSeason.value = REQUEST_SEASON;
+    elements.requestSeason.value = ADMISSIONS_CYCLE;
     notionPreviewPanel.renderSopMajorSelection();
     notionPreviewPanel.render();
     notionCreationPanel.render();
@@ -325,7 +332,7 @@ function renderDerivedOutput() {
   elements.workLogTitle.value = formatWorkLogTitles(workLogTitles);
   elements.deadline.value = calculateWeekdayDeadline(requestState.requestDateTime);
   elements.category.value = ADMISSIONS_CATEGORY;
-  elements.requestSeason.value = REQUEST_SEASON;
+  elements.requestSeason.value = ADMISSIONS_CYCLE;
   wordPanel.setDerivedOutput({
     programmeLabel,
     studentName: finalStudentName

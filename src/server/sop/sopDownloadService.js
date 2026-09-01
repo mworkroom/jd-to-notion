@@ -4,11 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  extractDocxAttachmentNames,
+  extractSopAttachmentNames,
   extractPotentialStudentNameTokens,
   matchesExpectedDownloadName,
-  normalizeSopFilename
+  normalizeSopFilename,
+  selectSopAttachment
 } from '../../shared/sopFilename.js';
+import { createJandiAttachmentTrigger } from './jandiAttachmentTrigger.js';
 import { createNotionClient } from '../notion/client.js';
 import { getNotionConfig } from '../notion/config.js';
 import { createNotionRepositories } from '../notion/repositories/index.js';
@@ -20,6 +22,8 @@ const TEMPORARY_DOWNLOAD_EXTENSIONS = new Set(['.crdownload', '.download', '.par
 
 export function createDefaultSopDownloadService(options = {}) {
   let studentsRepository = null;
+  const jandiAttachmentTrigger = options.jandiAttachmentTrigger
+    ?? createJandiAttachmentTrigger(options.jandiAttachmentTriggerOptions);
   const resolveKnownStudentNames = async (candidateNames) => {
     if (candidateNames.length === 0) {
       return [];
@@ -39,7 +43,8 @@ export function createDefaultSopDownloadService(options = {}) {
     timeoutMs: options.timeoutMs,
     pollIntervalMs: options.pollIntervalMs,
     stablePollCount: options.stablePollCount,
-    resolveKnownStudentNames
+    resolveKnownStudentNames,
+    triggerJandiDownload: (input) => jandiAttachmentTrigger.trigger(input)
   });
 }
 
@@ -49,7 +54,12 @@ export function createSopDownloadService({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   stablePollCount = DEFAULT_STABLE_POLL_COUNT,
-  resolveKnownStudentNames = async () => []
+  resolveKnownStudentNames = async () => [],
+  triggerJandiDownload = async ({ filename }) => ({
+    status: 'manual',
+    reason: 'auto_download_unavailable',
+    filename
+  })
 } = {}) {
   let current = null;
   let activeController = null;
@@ -59,19 +69,34 @@ export function createSopDownloadService({
       activeController?.abort();
 
       const studentName = String(input.studentName ?? '').trim();
-      const attachmentNames = uniqueDocxNames(
+      const message = String(input.message ?? '').trim();
+      const detectedAttachmentNames = uniqueSopAttachmentNames(
         input.attachmentNames?.length
           ? input.attachmentNames
-          : extractDocxAttachmentNames(input.message)
+          : extractSopAttachmentNames(message)
       );
+      const selection = selectSopAttachment(detectedAttachmentNames);
+      const allowAutoDownload = input.autoDownload !== false;
+      const attachmentNames = selection.status === 'selected'
+        ? [selection.filename]
+        : selection.candidateNames;
       const id = randomUUID();
 
       if (!studentName) {
         current = terminalState(id, 'not_armed', 'student_name_missing');
         return publicState(current);
       }
+      if (detectedAttachmentNames.length === 0) {
+        current = terminalState(id, 'not_armed', 'supported_attachment_not_found', { studentName });
+        return publicState(current);
+      }
       if (attachmentNames.length === 0) {
-        current = terminalState(id, 'not_armed', 'docx_attachment_not_found', { studentName });
+        current = terminalState(id, 'not_armed', selection.reason, {
+          studentName,
+          detectedAttachmentNames,
+          autoDownloadStatus: 'manual',
+          autoDownloadReason: selection.reason
+        });
         return publicState(current);
       }
 
@@ -98,6 +123,7 @@ export function createSopDownloadService({
           originalFilename: conflict.originalFilename,
           conflictingStudentNames: conflict.conflictingStudentNames,
           attachmentNames,
+          detectedAttachmentNames,
           rosterCheck
         });
         return publicState(current);
@@ -109,6 +135,7 @@ export function createSopDownloadService({
         current = terminalState(id, 'error', 'downloads_directory_unavailable', {
           studentName,
           attachmentNames,
+          detectedAttachmentNames,
           rosterCheck
         });
         return publicState(current);
@@ -123,7 +150,15 @@ export function createSopDownloadService({
         reason: '',
         studentName,
         attachmentNames,
+        detectedAttachmentNames,
         rosterCheck,
+        selectedAttachmentName: selection.filename,
+        autoDownloadStatus: selection.status === 'selected'
+          ? (allowAutoDownload ? 'preparing' : 'watching')
+          : 'manual',
+        autoDownloadReason: selection.status === 'selected'
+          ? (allowAutoDownload ? '' : 'rearmed_without_click')
+          : selection.reason,
         originalFilename: '',
         filename: '',
         conflictingStudentNames: [],
@@ -156,6 +191,20 @@ export function createSopDownloadService({
           };
         }
       });
+
+      if (selection.status === 'selected' && allowAutoDownload) {
+        const autoDownload = await triggerJandiDownload({
+          message,
+          filename: selection.filename
+        });
+        if (current?.id === id && current.status === 'armed') {
+          current = {
+            ...current,
+            autoDownloadStatus: autoDownload.status,
+            autoDownloadReason: autoDownload.reason ?? ''
+          };
+        }
+      }
 
       return publicState(current);
     },
@@ -280,9 +329,6 @@ async function readDirectoryState(directory, expectedNames) {
 }
 
 function isDownloadCandidate(filename, expectedNames, metadata, baselineMetadata) {
-  if (path.extname(filename).toLowerCase() !== '.docx') {
-    return false;
-  }
   if (!expectedNames.some((expected) => matchesExpectedDownloadName(filename, expected))) {
     return false;
   }
@@ -320,10 +366,10 @@ async function fileExists(filePath) {
   }
 }
 
-function uniqueDocxNames(names) {
+function uniqueSopAttachmentNames(names) {
   return [...new Set((names ?? [])
     .map((name) => path.basename(String(name ?? '').trim()))
-    .filter((name) => path.extname(name).toLowerCase() === '.docx'))];
+    .filter((name) => ['.docx', '.pdf'].includes(path.extname(name).toLowerCase())))];
 }
 
 function terminalState(id, status, reason, details = {}) {
@@ -333,7 +379,11 @@ function terminalState(id, status, reason, details = {}) {
     reason,
     studentName: '',
     attachmentNames: [],
+    detectedAttachmentNames: [],
     rosterCheck: 'complete',
+    selectedAttachmentName: '',
+    autoDownloadStatus: 'manual',
+    autoDownloadReason: reason,
     originalFilename: '',
     filename: '',
     conflictingStudentNames: [],

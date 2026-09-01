@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { getMajorSearchKey } from '../src/shared/normalization.js';
 import {
   ADMISSIONS_CATEGORY,
+  REQUEST_SEASON,
   WORK_LOG_TITLE_PREFIX
 } from '../src/shared/workLog.js';
+import { SOP_CATEGORIES } from '../src/shared/sopReview.js';
 import { createAgentsRepository } from '../src/server/notion/repositories/agentsRepository.js';
 import { createStudentsRepository } from '../src/server/notion/repositories/studentsRepository.js';
 import { createUniversitiesRepository } from '../src/server/notion/repositories/universitiesRepository.js';
@@ -318,6 +320,49 @@ test('work log repository calculates the first title when no existing logs match
   assert.equal(await repository.getNextTitleForStudent('student-1'), `${WORK_LOG_TITLE_PREFIX} 1`);
 });
 
+test('work log repository returns both SOP categories with Major and request season', async () => {
+  const client = makeClient({
+    data: {
+      [dataSourceIds.workLog]: [
+        workLogPage('sop-en', 'SOP 1차 감수(영문)', SOP_CATEGORIES.영문, ['student-1'], ['major-a'], REQUEST_SEASON),
+        workLogPage('sop-ko', 'SOP 2차 감수(국문)', SOP_CATEGORIES.국문, ['student-1'], ['major-b'], REQUEST_SEASON),
+        workLogPage('admissions', '입학 요강 1', ADMISSIONS_CATEGORY, ['student-1'], ['major-a'], REQUEST_SEASON),
+        workLogPage('other-student', 'SOP 1차 감수(영문)', SOP_CATEGORIES.영문, ['student-2'], ['major-c'], REQUEST_SEASON)
+      ]
+    }
+  });
+  const repository = createWorkLogsRepository({ client, dataSourceId: dataSourceIds.workLog });
+
+  const logs = await repository.findSopLogsWithMajorsForStudent('student-1');
+
+  assert.deepEqual(logs.map(({ id, title, category, majorIds, requestSeason }) => ({
+    id,
+    title,
+    category,
+    majorIds,
+    requestSeason
+  })), [
+    {
+      id: 'sop-en',
+      title: 'SOP 1차 감수(영문)',
+      category: SOP_CATEGORIES.영문,
+      majorIds: ['major-a'],
+      requestSeason: REQUEST_SEASON
+    },
+    {
+      id: 'sop-ko',
+      title: 'SOP 2차 감수(국문)',
+      category: SOP_CATEGORIES.국문,
+      majorIds: ['major-b'],
+      requestSeason: REQUEST_SEASON
+    }
+  ]);
+  assert.deepEqual(
+    client.calls.query.map((request) => request.filter.and[1].select.equals),
+    [SOP_CATEGORIES.영문, SOP_CATEGORIES.국문]
+  );
+});
+
 test('work log repository finalizes only the title of a newly created Work Log', async () => {
   const client = makeClient({
     data: {
@@ -458,13 +503,15 @@ function majorPage(id, name, universityIds) {
   };
 }
 
-function workLogPage(id, title, category, studentIds) {
+function workLogPage(id, title, category, studentIds, majorIds = [], requestSeason = '') {
   return {
     ...titlePage(id, NOTION_PROPERTY_NAMES.workLog.title, title),
     properties: {
       [NOTION_PROPERTY_NAMES.workLog.title]: titleProperty(title),
       [NOTION_PROPERTY_NAMES.workLog.category]: selectProperty(category),
-      [NOTION_PROPERTY_NAMES.workLog.students]: relationProperty(studentIds)
+      [NOTION_PROPERTY_NAMES.workLog.students]: relationProperty(studentIds),
+      [NOTION_PROPERTY_NAMES.workLog.major]: relationProperty(majorIds),
+      [NOTION_PROPERTY_NAMES.workLog.requestSeason]: selectProperty(requestSeason)
     }
   };
 }
@@ -486,6 +533,6 @@ function relationProperty(ids) {
 function selectProperty(name) {
   return {
     type: 'select',
-    select: { name }
+    select: name ? { name } : null
   };
 }

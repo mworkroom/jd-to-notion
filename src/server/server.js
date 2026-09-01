@@ -3,6 +3,11 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  getAdmissionsCycleStartYear,
+  getAdmissionsFilenamePrefix
+} from '../shared/admissionsCycle.js';
+import { REQUEST_SEASON } from '../shared/workLog.js';
 import { mockExtractJandiMessage, validateExtraction } from './extraction/mockExtractor.js';
 import { safeGoogleSheetsError } from './googleSheets/errors.js';
 import { createDefaultGoogleSheetsPreviewService } from './googleSheets/googleSheetsPreviewService.js';
@@ -122,7 +127,9 @@ export function createAppServer(options = {}) {
           notionConfig: options.notionConfig,
           timeoutMs: options.sopDownloadTimeoutMs,
           pollIntervalMs: options.sopDownloadPollIntervalMs,
-          stablePollCount: options.sopDownloadStablePollCount
+          stablePollCount: options.sopDownloadStablePollCount,
+          jandiAttachmentTrigger: options.jandiAttachmentTrigger,
+          jandiAttachmentTriggerOptions: options.jandiAttachmentTriggerOptions
         });
         await handleSopDownloadArm(request, response, sopDownloadService);
         return;
@@ -163,6 +170,11 @@ export function createAppServer(options = {}) {
 
       if (request.method !== 'GET') {
         sendJson(response, 405, { error: 'Method not allowed.' });
+        return;
+      }
+
+      if (requestUrl.pathname === '/runtime-config.js') {
+        sendRuntimeConfig(response);
         return;
       }
 
@@ -359,6 +371,20 @@ function sendNotionError(response, error) {
     ok: false,
     error: payload
   });
+}
+
+function sendRuntimeConfig(response) {
+  const startYear = getAdmissionsCycleStartYear(REQUEST_SEASON);
+  const filenamePrefix = getAdmissionsFilenamePrefix(REQUEST_SEASON);
+  response.writeHead(200, {
+    'Content-Type': 'text/javascript; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  response.end([
+    `export const ADMISSIONS_CYCLE = ${JSON.stringify(REQUEST_SEASON)};`,
+    `export const ADMISSIONS_CYCLE_START_YEAR = ${JSON.stringify(startYear)};`,
+    `export const ADMISSIONS_FILENAME_PREFIX = ${JSON.stringify(filenamePrefix)};`
+  ].join('\n'));
 }
 
 async function serveStatic(pathname, response) {

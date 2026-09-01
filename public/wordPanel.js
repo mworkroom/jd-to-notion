@@ -1,4 +1,5 @@
 import { generateWordFilename } from '/shared/filename.js';
+import { ADMISSIONS_CYCLE_START_YEAR } from '/runtime-config.js';
 
 export function initializeWordPanel({
   documentRef = document,
@@ -43,7 +44,8 @@ export function initializeWordPanel({
     const context = getContext();
     elements.wordFilename.value = generateWordFilename({
       studentName: context.finalStudentName || context.requestState?.studentName,
-      programmeNames: [programmeLabelOverride]
+      programmeNames: [programmeLabelOverride],
+      year: ADMISSIONS_CYCLE_START_YEAR
     });
     invalidateWordSummary('공통 학과명 변경을 파일명과 Word 생성 예정 내용에 반영했습니다.');
     renderWordPanel();
@@ -71,7 +73,8 @@ export function initializeWordPanel({
     elements.programmeLabel.value = programmeLabel;
     elements.wordFilename.value = generateWordFilename({
       studentName,
-      programmeNames: [programmeLabel]
+      programmeNames: [programmeLabel],
+      year: ADMISSIONS_CYCLE_START_YEAR
     });
   }
 
@@ -194,8 +197,7 @@ export function initializeWordPanel({
         <p><strong>${escapeHtml(result.filename)}</strong></p>
         <p class="word-output-path">${escapeHtml(result.outputPath)}</p>
         <p><strong>${escapeHtml(result.folderCreated ? '작업 폴더 생성' : '기존 작업 폴더 사용')}</strong></p>
-        <p class="word-output-path">${escapeHtml(result.folderPath)}</p>
-        <p>Word는 자동으로 열지 않았습니다.</p>
+        <p class="word-output-path">${escapeHtml(result.folderPath)}</p> 
       `;
       elements.wordGenerationStatus.textContent = `${result.programmeCount}개 전공이 포함된 Word 파일을 저장하고 작업 폴더를 준비했습니다.`;
     } catch (error) {

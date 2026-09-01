@@ -503,6 +503,8 @@ test('SOP 첨부파일 감시가 arm, 완료 표시, Clear 취소까지 격리�
         id: 'sop-context-1',
         status: 'armed',
         attachmentNames: ['SOP_1차_초안.docx'],
+        selectedAttachmentName: 'SOP_1차_초안.docx',
+        autoDownloadStatus: 'triggered',
         rosterCheck: 'available'
       },
       status: {
@@ -525,13 +527,60 @@ test('SOP 첨부파일 감시가 arm, 완료 표시, Clear 취소까지 격리�
     'SOP_1차_초안.docx → 김테스트_SOP_1차_초안.docx'
   );
   await expect(page.locator('#sop-download-status')).toHaveAttribute('data-tone', 'success');
-  expect(api.sopArmRequests).toEqual([{ studentName: '김테스트', message }]);
+  expect(api.sopArmRequests).toEqual([{
+    studentName: '김테스트',
+    message,
+    autoDownload: true
+  }]);
   expect(api.sopStatusRequests).toEqual(['sop-context-1']);
 
   await page.getByRole('button', { name: 'Clear' }).click();
 
   await expect(page.locator('#review-section')).toBeHidden();
   expect(api.cancelRequests).toBeGreaterThan(0);
+  expect(api.unexpectedRequests).toEqual([]);
+  expect(api.browserErrors).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+});
+
+test('SOP 후보가 여러 개면 자동 클릭을 보류하고 수동 선택을 안내한다', async ({ page }) => {
+  const message = [
+    '테스트 담당자',
+    '2026/08/25 AM 09:00',
+    '[업무요청] 김테스트 SOP 1차 감수',
+    'SOP old.docx',
+    'SOP final.pdf'
+  ].join('\n');
+  const api = await installApiFixtures(page, {
+    extractionResponse: sopExtractionFixture,
+    sopDownloadFixture: {
+      arm: {
+        id: 'sop-context-manual',
+        status: 'armed',
+        attachmentNames: ['SOP old.docx', 'SOP final.pdf'],
+        autoDownloadStatus: 'manual',
+        autoDownloadReason: 'multiple_sop_candidates',
+        rosterCheck: 'complete'
+      },
+      status: {
+        id: 'sop-context-manual',
+        status: 'timed_out'
+      }
+    }
+  });
+
+  await page.goto('/');
+  await page.locator('#jandi-message').fill(message);
+  await page.getByRole('button', { name: 'Analyze' }).click();
+
+  await expect(page.locator('#sop-download-status')).toContainText('자동 다운로드 보류');
+  await expect(page.locator('#sop-download-status')).toContainText('SOP old.docx · SOP final.pdf');
+  await expect(page.locator('#sop-download-status')).toHaveAttribute('data-tone', 'warning');
+  expect(api.sopArmRequests).toEqual([{
+    studentName: '김테스트',
+    message,
+    autoDownload: true
+  }]);
   expect(api.unexpectedRequests).toEqual([]);
   expect(api.browserErrors).toEqual([]);
   await expectNoHorizontalOverflow(page);

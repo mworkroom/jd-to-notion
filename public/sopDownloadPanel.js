@@ -16,7 +16,7 @@ export function initializeSopDownloadPanel({
   let requestSequence = 0;
 
   return {
-    arm: armSopDownload,
+    arm: () => armSopDownload({ autoDownload: true }),
     cancel: cancelSopDownload,
     scheduleRearm
   };
@@ -24,11 +24,11 @@ export function initializeSopDownloadPanel({
   function scheduleRearm() {
     windowRef.clearTimeout(rearmTimer);
     rearmTimer = windowRef.setTimeout(() => {
-      void armSopDownload();
+      void armSopDownload({ autoDownload: false });
     }, rearmDelayMs);
   }
 
-  async function armSopDownload() {
+  async function armSopDownload({ autoDownload = true } = {}) {
     const { requestState, message = '' } = getContext();
     const studentName = requestState?.studentName?.trim() ?? '';
     const normalizedMessage = message.trim();
@@ -45,7 +45,7 @@ export function initializeSopDownloadPanel({
       const response = await fetchImpl('/api/sop-download/arm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentName, message: normalizedMessage })
+        body: JSON.stringify({ studentName, message: normalizedMessage, autoDownload })
       });
       const status = await response.json();
       if (currentRequestSequence !== requestSequence) {
@@ -127,7 +127,20 @@ export function initializeSopDownloadPanel({
       message = 'SOP 첨부파일과 학생 이름을 확인하고 있습니다...';
     } else if (status.status === 'armed') {
       tone = 'working';
-      message = `파일명 자동 정리 준비됨 · JANDI에서 ${attachments} 파일을 다운로드하세요.`;
+      if (status.autoDownloadStatus === 'triggered') {
+        message = `자동 다운로드 시작됨 · ${status.selectedAttachmentName || attachments} · 완료되면 학생명을 앞으로 옮깁니다.`;
+      } else if (status.autoDownloadStatus === 'watching') {
+        message = `다운로드 감시 중 · ${status.selectedAttachmentName || attachments} · 완료되면 학생명을 앞으로 옮깁니다.`;
+      } else if (status.autoDownloadStatus === 'manual') {
+        tone = 'warning';
+        if (['multiple_sop_candidates', 'ambiguous_attachments'].includes(status.autoDownloadReason)) {
+          message = `자동 다운로드 보류 · SOP 파일을 하나로 구분할 수 없습니다. JANDI에서 ${attachments} 중 필요한 파일을 다운로드하세요.`;
+        } else {
+          message = `자동 다운로드를 시작하지 못했습니다 · JANDI에서 ${attachments} 파일을 직접 다운로드하면 이름은 자동 정리됩니다.`;
+        }
+      } else {
+        message = `파일명 자동 정리 준비됨 · ${attachments} 파일을 확인하고 있습니다.`;
+      }
       if (status.rosterCheck === 'unavailable') {
         message += ' 다른 Student 이름 대조는 현재 사용할 수 없습니다.';
       }
@@ -148,9 +161,12 @@ export function initializeSopDownloadPanel({
     } else if (status.status === 'timed_out') {
       tone = 'warning';
       message = '2분 동안 해당 SOP 다운로드를 찾지 못했습니다. 다시 Analyze한 뒤 다운로드해주세요.';
-    } else if (status.status === 'not_armed' && status.reason === 'docx_attachment_not_found') {
+    } else if (status.status === 'not_armed' && status.reason === 'supported_attachment_not_found') {
       tone = 'warning';
-      message = '이 JANDI 메시지에서 .docx 첨부파일 이름을 찾지 못해 자동 정리를 준비하지 않았습니다.';
+      message = '이 JANDI 메시지에서 DOCX/PDF 첨부파일 이름을 찾지 못해 자동 다운로드를 준비하지 않았습니다.';
+    } else if (status.status === 'not_armed' && status.reason === 'reference_only') {
+      tone = 'warning';
+      message = '입학요강 등 참고 파일만 감지되어 자동 다운로드하지 않았습니다.';
     } else if (status.status === 'not_armed') {
       tone = 'warning';
       message = '학생 이름을 확인한 뒤 파일명 자동 정리를 다시 준비해주세요.';
