@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_CONTEXT_MAX_AGE_MS = 120_000;
+const DEFAULT_TRIGGER_DEDUP_MS = 5_000;
 const DEFAULT_CONTEXT_PATH = fileURLToPath(
   new URL('../../../.local/jandi-source-context.json', import.meta.url)
 );
@@ -17,11 +18,15 @@ export function createJandiAttachmentTrigger({
   contextPath = DEFAULT_CONTEXT_PATH,
   scriptPath = DEFAULT_SCRIPT_PATH,
   contextMaxAgeMs = DEFAULT_CONTEXT_MAX_AGE_MS,
+  triggerDedupMs = DEFAULT_TRIGGER_DEDUP_MS,
   now = () => Date.now(),
   runInspector = runInspectorProcess
 } = {}) {
+  let inFlight = null;
+  let recentTrigger = null;
+
   return {
-    async trigger({ message, filename }) {
+    async trigger({ message, filename, downloadsDirectory }) {
       try {
         const context = JSON.parse(await readFile(contextPath, 'utf8'));
         const capturedAt = Date.parse(context.capturedAt);
@@ -35,16 +40,40 @@ export function createJandiAttachmentTrigger({
           return manualResult('attachment_not_in_source_context', filename);
         }
 
-        await runInspector({
+        const triggerKey = [
+          context.capturedAt,
+          context.messageSha256,
+          String(filename ?? '').toLowerCase()
+        ].join('|');
+        if (inFlight?.key === triggerKey) {
+          await inFlight.promise;
+          return suppressedResult(filename);
+        }
+        if (recentTrigger?.key === triggerKey
+          && now() - recentTrigger.completedAt < triggerDedupMs) {
+          return suppressedResult(filename);
+        }
+
+        const promise = runInspector({
           scriptPath,
           contextPath,
-          filename
+          filename,
+          downloadsDirectory
         });
-        return {
-          status: 'triggered',
-          reason: '',
-          filename
-        };
+        inFlight = { key: triggerKey, promise };
+        try {
+          await promise;
+          recentTrigger = { key: triggerKey, completedAt: now() };
+          return {
+            status: 'triggered',
+            reason: '',
+            filename
+          };
+        } finally {
+          if (inFlight?.promise === promise) {
+            inFlight = null;
+          }
+        }
       } catch (error) {
         return manualResult(error.code === 'ENOENT'
           ? 'source_context_missing'
@@ -54,15 +83,29 @@ export function createJandiAttachmentTrigger({
   };
 }
 
-async function runInspectorProcess({ scriptPath, contextPath, filename }) {
-  await execFileAsync(process.execPath, [
+async function runInspectorProcess({ scriptPath, contextPath, filename, downloadsDirectory }) {
+  const argumentsList = [
     scriptPath,
     '--download=' + filename,
     '--context=' + contextPath
-  ], {
+  ];
+  if (downloadsDirectory) {
+    argumentsList.push('--download-dir=' + downloadsDirectory);
+  }
+
+  await execFileAsync(process.execPath, argumentsList, {
     timeout: 10_000,
     windowsHide: true
   });
+}
+
+function suppressedResult(filename) {
+  return {
+    status: 'triggered',
+    reason: 'duplicate_trigger_suppressed',
+    filename,
+    duplicateSuppressed: true
+  };
 }
 
 function manualResult(reason, filename) {

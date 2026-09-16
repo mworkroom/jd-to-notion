@@ -101,7 +101,7 @@ test('programme normalization adds one explicit degree token from the URL to a d
   assert.equal(programme.needsMajorNameReview, false);
 });
 
-test('programme normalization keeps URL degree inference within safe review boundaries', () => {
+test('programme normalization prioritizes one URL degree while keeping unsafe URLs in review', () => {
   assert.deepEqual(
     getProgrammeUrlDegreeLabels('https://example.test/courses/finance-ma/2027'),
     ['MA']
@@ -119,9 +119,13 @@ test('programme normalization keeps URL degree inference within safe review boun
     programmeNameOriginal: 'Finance MA',
     programmeUrl: 'https://example.test/courses/finance-msc'
   });
-  assert.equal(conflict.notionMajorNameProposed, 'Finance MA');
-  assert.equal(conflict.degreeReviewReason, 'programme-url-degree-conflict');
-  assert.equal(conflict.needsMajorNameReview, true);
+  assert.equal(conflict.notionMajorNameProposed, 'Finance MSc');
+  assert.deepEqual(conflict.correctedDegree, {
+    requestedDegreeLabel: 'MA',
+    urlDegreeLabel: 'MSc'
+  });
+  assert.equal(conflict.degreeReviewReason, null);
+  assert.equal(conflict.needsMajorNameReview, false);
 
   const ambiguous = deriveProgrammeFields({
     programmeNameOriginal: 'Finance',
@@ -138,6 +142,27 @@ test('programme normalization keeps URL degree inference within safe review boun
   assert.equal(missing.notionMajorNameProposed, 'Finance');
   assert.equal(missing.degreeReviewReason, 'degree-missing');
   assert.equal(missing.needsMajorNameReview, true);
+});
+
+test('manual Proposed Notion Major name overrides URL correction and can stay empty while editing', () => {
+  const edited = deriveProgrammeFields({
+    programmeNameOriginal: 'MSc Educational Leadership',
+    programmeUrl: 'https://www.manchester.ac.uk/study/masters/courses/list/08289/ma-educational-leadership/',
+    notionMajorNameOverride: 'Educational Leadership MA'
+  });
+
+  assert.equal(edited.programmeNameOriginal, 'MSc Educational Leadership');
+  assert.equal(edited.notionMajorNameProposed, 'Educational Leadership MA');
+  assert.equal(edited.majorSearchKey, 'educational leadership');
+  assert.equal(edited.notionMajorNameOverride, 'Educational Leadership MA');
+  assert.equal(edited.needsMajorNameReview, false);
+
+  const cleared = deriveProgrammeFields({
+    ...edited,
+    notionMajorNameOverride: ''
+  });
+  assert.equal(cleared.notionMajorNameProposed, '');
+  assert.equal(cleared.majorSearchKey, '');
 });
 
 test('generateProgrammeLabel uses the longest meaningful phrase when coverage is tied', () => {

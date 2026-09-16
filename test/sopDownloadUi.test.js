@@ -48,4 +48,7 @@ test('JANDI extractor keeps post and comment attachments in separate source scop
   assert.match(inspector, /const scopedElements/u);
   assert.match(inspector, /onPreviewClick/u);
   assert.match(inspector, /locateViewerDownload/u);
+  assert.match(inspector, /waitForDownloadActivity/u);
+  assert.match(inspector, /firstClickStartedDownload/u);
+  assert.match(inspector, /--download-dir=/u);
 });

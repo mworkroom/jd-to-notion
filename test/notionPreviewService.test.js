@@ -63,6 +63,39 @@ test('preview service builds a new-client read-only preview with recalculated Ma
   }]);
 });
 
+test('preview service preserves an explicit Proposed Notion Major override', async () => {
+  const service = createDefaultNotionPreviewService({
+    config,
+    client: makeClient({
+      data: {
+        [dataSourceIds.agents]: [titlePage('agent-1', NOTION_PROPERTY_NAMES.agents.name, 'Requester')],
+        [dataSourceIds.students]: [],
+        [dataSourceIds.universities]: [titlePage('uni-1', NOTION_PROPERTY_NAMES.universities.name, 'Manchester')],
+        [dataSourceIds.majors]: [],
+        [dataSourceIds.workLog]: []
+      }
+    })
+  });
+
+  const preview = await service.preview({
+    clientMode: 'new',
+    requesterName: 'Requester',
+    studentName: 'Kim',
+    requestDateTime: '2026-09-14T21:00:00+09:00',
+    programmes: [{
+      universityName: 'Manchester',
+      programmeNameOriginal: 'MSc Educational Leadership',
+      programmeUrl: 'https://www.manchester.ac.uk/study/masters/courses/list/08289/ma-educational-leadership/',
+      notionMajorNameProposed: 'stale browser value',
+      notionMajorNameOverride: 'Educational Leadership MEd'
+    }]
+  });
+
+  assert.equal(preview.programmes[0].major.searchKey, 'educational leadership');
+  assert.equal(preview.programmes[0].major.proposedCreateName, 'Educational Leadership MEd');
+  assert.equal(preview.programmes[0].needsMajorNameReview, false);
+});
+
 test('preview service selects an existing requester-Agent Student and calculates the real work-log title', async () => {
   const service = createDefaultNotionPreviewService({
     config,

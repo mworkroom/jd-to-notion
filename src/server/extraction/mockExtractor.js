@@ -177,7 +177,16 @@ function extractProgrammes(lines) {
     const urlInfo = extractUrlInfo(line);
     if (urlInfo.url) {
       const inlineProgrammeName = extractProgrammeNameFromUrlLine(line, urlInfo);
-      const programmeName = pendingProgrammeName || inlineProgrammeName || sharedProgrammeName;
+      const inlineUniversityProgramme = !pendingProgrammeName && inlineProgrammeName
+        ? splitUniversityProgrammeLine(inlineProgrammeName)
+        : null;
+      if (inlineUniversityProgramme) {
+        currentUniversityName = inlineUniversityProgramme.universityName;
+      }
+      const programmeName = pendingProgrammeName
+        || inlineUniversityProgramme?.programmeName
+        || inlineProgrammeName
+        || sharedProgrammeName;
 
       if (programmeName) {
         const university = resolveUniversityName(currentUniversityName, urlInfo.url);
@@ -344,9 +353,12 @@ function extractProgrammeNameFromUrlLine(line, urlInfo) {
     return stripProgrammeBullet(urlInfo.label);
   }
 
-  const beforeUrl = normalizeWhitespace(String(line ?? '').replace(urlInfo.url, ''));
-  const withoutMarkdownSyntax = beforeUrl.replace(/[\[\]()]/g, '');
-  return stripProgrammeBullet(withoutMarkdownSyntax);
+  const withoutMarkdownLink = String(line ?? '').replace(
+    /\[[^\]]+\]\(https?:\/\/[^\s)]+\)/gi,
+    ' '
+  );
+  const withoutBareUrl = normalizeWhitespace(withoutMarkdownLink.replace(urlInfo.url, ' '));
+  return stripProgrammeBullet(withoutBareUrl);
 }
 
 function extractLabeledValue(value, labels) {
@@ -385,6 +397,14 @@ function splitUniversityProgrammeLine(value) {
     )
   ) {
     return null;
+  }
+
+  const parentheticalMatch = raw.match(/^(.+?)\s*\(([^)]+)\)\s*$/u);
+  if (parentheticalMatch && isUniversityLine(parentheticalMatch[1])) {
+    return {
+      universityName: stripLeadingMarkers(parentheticalMatch[1]),
+      programmeName: stripProgrammeBullet(parentheticalMatch[2])
+    };
   }
 
   const knownPrefixMatch = splitKnownUniversityProgrammePrefix(raw, hasNumberedListMarker);
@@ -436,14 +456,6 @@ function splitUniversityProgrammeLine(value) {
         programmeName
       };
     }
-  }
-
-  const parentheticalMatch = raw.match(/^(.+?)\s*\(([^)]+)\)\s*$/u);
-  if (parentheticalMatch && isUniversityLine(parentheticalMatch[1])) {
-    return {
-      universityName: stripLeadingMarkers(parentheticalMatch[1]),
-      programmeName: stripProgrammeBullet(parentheticalMatch[2])
-    };
   }
 
   const degreeLedMatch = raw.match(

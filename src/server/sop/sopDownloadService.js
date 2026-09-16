@@ -18,6 +18,7 @@ import { createNotionRepositories } from '../notion/repositories/index.js';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_STABLE_POLL_COUNT = 2;
+const DEFAULT_AUTO_DOWNLOAD_DEDUP_MS = 5_000;
 const TEMPORARY_DOWNLOAD_EXTENSIONS = new Set(['.crdownload', '.download', '.part', '.tmp']);
 
 export function createDefaultSopDownloadService(options = {}) {
@@ -54,6 +55,8 @@ export function createSopDownloadService({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   stablePollCount = DEFAULT_STABLE_POLL_COUNT,
+  autoDownloadDedupMs = DEFAULT_AUTO_DOWNLOAD_DEDUP_MS,
+  now = () => Date.now(),
   resolveKnownStudentNames = async () => [],
   triggerJandiDownload = async ({ filename }) => ({
     status: 'manual',
@@ -63,20 +66,35 @@ export function createSopDownloadService({
 } = {}) {
   let current = null;
   let activeController = null;
+  let currentRequestKey = '';
+  let currentArmStartedAt = 0;
+  let currentAutoDownloadRequested = false;
 
   return {
     async arm(input = {}) {
-      activeController?.abort();
-
       const studentName = String(input.studentName ?? '').trim();
       const message = String(input.message ?? '').trim();
+      const allowAutoDownload = input.autoDownload !== false;
+      const requestKey = [studentName, message].join('\u0000');
+      if (allowAutoDownload
+        && currentAutoDownloadRequested
+        && currentRequestKey === requestKey
+        && now() - currentArmStartedAt < autoDownloadDedupMs
+        && ['armed', 'completed'].includes(current?.status)) {
+        return publicState(current);
+      }
+
+      activeController?.abort();
+      currentRequestKey = requestKey;
+      currentArmStartedAt = now();
+      currentAutoDownloadRequested = allowAutoDownload;
+
       const detectedAttachmentNames = uniqueSopAttachmentNames(
         input.attachmentNames?.length
           ? input.attachmentNames
           : extractSopAttachmentNames(message)
       );
       const selection = selectSopAttachment(detectedAttachmentNames);
-      const allowAutoDownload = input.autoDownload !== false;
       const attachmentNames = selection.status === 'selected'
         ? [selection.filename]
         : selection.candidateNames;
@@ -195,7 +213,8 @@ export function createSopDownloadService({
       if (selection.status === 'selected' && allowAutoDownload) {
         const autoDownload = await triggerJandiDownload({
           message,
-          filename: selection.filename
+          filename: selection.filename,
+          downloadsDirectory
         });
         if (current?.id === id && current.status === 'armed') {
           current = {
@@ -219,6 +238,9 @@ export function createSopDownloadService({
     cancel() {
       activeController?.abort();
       activeController = null;
+      currentRequestKey = '';
+      currentArmStartedAt = 0;
+      currentAutoDownloadRequested = false;
       if (current?.status === 'armed') {
         current = { ...current, status: 'cancelled', reason: 'cancelled' };
       }

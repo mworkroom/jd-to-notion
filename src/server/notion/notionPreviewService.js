@@ -175,6 +175,9 @@ export function validatePreviewRequest(input = {}) {
       rawUniversityName: programme?.rawUniversityName ?? programme?.universityName ?? '',
       universityName: normalizeWhitespace(programme?.universityName),
       programmeNameOriginal: normalizeWhitespace(programme?.programmeNameOriginal),
+      notionMajorNameOverride: typeof programme?.notionMajorNameOverride === 'string'
+        ? programme.notionMajorNameOverride
+        : null,
       programmeUrl: normalizeWhitespace(programme?.programmeUrl)
     });
 

@@ -116,6 +116,71 @@ test('mocked extraction supports labeled university and programme fields and inf
   }
 });
 
+test('mocked extraction prioritizes URL degrees over conflicting staff-written degrees', async () => {
+  const server = createAppServer();
+  await listen(server, '127.0.0.1', 0);
+
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const payload = await extractMessage(baseUrl, [
+      '담당자',
+      '2026/09/14 PM 09:00',
+      '[업무요청] 조명상님 입학요강 서치',
+      'University of Birmingham',
+      'MA Educational Leadership and Management',
+      'https://www.birmingham.ac.uk/study/postgraduate/subjects/teacher-education-courses/educational-leadership-and-management-ma',
+      'University of Manchester',
+      'MSc Educational Leadership',
+      'https://www.manchester.ac.uk/study/masters/courses/list/08289/ma-educational-leadership/',
+      'University of Nottingham',
+      'MA Educational Leadership and Management',
+      'https://www.nottingham.ac.uk/pgstudy/course/taught/management-msc'
+    ].join('\n'));
+
+    assert.deepEqual(
+      payload.extraction.programmes.map((programme) => ({
+        universityName: programme.universityName,
+        programmeNameOriginal: programme.programmeNameOriginal,
+        notionMajorNameProposed: programme.notionMajorNameProposed,
+        correctedDegree: programme.correctedDegree,
+        needsMajorNameReview: programme.needsMajorNameReview
+      })),
+      [
+        {
+          universityName: 'Birmingham',
+          programmeNameOriginal: 'MA Educational Leadership and Management',
+          notionMajorNameProposed: 'Educational Leadership and Management MA',
+          correctedDegree: null,
+          needsMajorNameReview: false
+        },
+        {
+          universityName: 'Manchester',
+          programmeNameOriginal: 'MSc Educational Leadership',
+          notionMajorNameProposed: 'Educational Leadership MA',
+          correctedDegree: {
+            requestedDegreeLabel: 'MSc',
+            urlDegreeLabel: 'MA'
+          },
+          needsMajorNameReview: false
+        },
+        {
+          universityName: 'Nottingham',
+          programmeNameOriginal: 'MA Educational Leadership and Management',
+          notionMajorNameProposed: 'Educational Leadership and Management MSc',
+          correctedDegree: {
+            requestedDegreeLabel: 'MA',
+            urlDegreeLabel: 'MSc'
+          },
+          needsMajorNameReview: false
+        }
+      ]
+    );
+    assert.deepEqual(payload.extraction.extractionWarnings, []);
+  } finally {
+    await close(server);
+  }
+});
+
 test('mocked extraction classifies SOP requests without requiring programme data', async () => {
   const server = createAppServer();
   await listen(server, '127.0.0.1', 0);
@@ -168,6 +233,38 @@ test('mocked extraction blocks ambiguous or unsupported SOP review rounds', asyn
     const payload = await response.json();
 
     assert.equal(response.status, 422);
+    assert.equal(payload.extraction.sopReview.round, null);
+    assert.ok(payload.errors.sopReviewRound);
+  } finally {
+    await close(server);
+  }
+});
+
+test('mocked extraction preserves the Student when the post and attachment contain conflicting SOP rounds', async () => {
+  const server = createAppServer();
+  await listen(server, '127.0.0.1', 0);
+
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: [
+          '오유리',
+          '2026/09/15 PM 04:38',
+          '[업무요청] 송모민님 SOP 1차 감수요청',
+          'Development Studies MA, University of Sussex)',
+          '지원하는 송모민님의 SOP 1차 감수요청 드립니다.',
+          '송모민 University of Sussex SOP 2차 0915.docx'
+        ].join('\n')
+      })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 422);
+    assert.equal(payload.extraction.requestType, 'sop_review');
+    assert.equal(payload.extraction.studentName, '송모민');
     assert.equal(payload.extraction.sopReview.round, null);
     assert.ok(payload.errors.sopReviewRound);
   } finally {
@@ -723,6 +820,55 @@ test('mocked extraction accepts parenthesized and inline university programme ro
       ['Loughborough', 'MMU', 'Bath', 'Liverpool', 'Middlesex']
     );
     assert.deepEqual(payload.extraction.extractionWarnings, []);
+  } finally {
+    await close(server);
+  }
+});
+
+test('mocked extraction separates parenthesized programmes from universities on Markdown URL lines', async () => {
+  const server = createAppServer();
+  await listen(server, '127.0.0.1', 0);
+
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const payload = await extractMessage(baseUrl, [
+      '최승미',
+      '2026/09/16 AM 11:21',
+      '[업무요청] 오서연 입학요강 정리',
+      '@Marion Lee (정규감수) 안녕하세요 :)',
+      '27년도 영국 석사 입학요강 3개교 요청 부탁드립니다.',
+      '감사합니다!',
+      'Durham(International Business MSc) [https://www.durham.ac.uk/business/courses/international-business-n2pd09/](https://www.durham.ac.uk/business/courses/international-business-n2pd09/)',
+      'Leeds (International Business) [https://courses.leeds.ac.uk/e763/international-business-msc](https://courses.leeds.ac.uk/e763/international-business-msc)',
+      'Warwick (International Trade, Strategy and Operations MSc) [https://warwick.ac.uk/study/postgraduate/courses/msc-international-trade/](https://warwick.ac.uk/study/postgraduate/courses/msc-international-trade/)'
+    ].join('\n'));
+
+    assert.deepEqual(
+      payload.extraction.programmes.map((programme) => ({
+        universityName: programme.universityName,
+        programmeNameOriginal: programme.programmeNameOriginal,
+        notionMajorNameProposed: programme.notionMajorNameProposed
+      })),
+      [
+        {
+          universityName: 'Durham',
+          programmeNameOriginal: 'International Business MSc',
+          notionMajorNameProposed: 'International Business MSc'
+        },
+        {
+          universityName: 'Leeds',
+          programmeNameOriginal: 'International Business',
+          notionMajorNameProposed: 'International Business MSc'
+        },
+        {
+          universityName: 'Warwick',
+          programmeNameOriginal: 'International Trade, Strategy and Operations MSc',
+          notionMajorNameProposed: 'International Trade, Strategy and Operations MSc'
+        }
+      ]
+    );
+    assert.deepEqual(payload.extraction.extractionWarnings, []);
+    assert.deepEqual(payload.errors, {});
   } finally {
     await close(server);
   }

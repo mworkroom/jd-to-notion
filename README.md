@@ -203,6 +203,12 @@ folder. The launcher:
 Background server output is stored in `.local/app-server.log` and
 `.local/app-server-error.log`. The `.local` directory is excluded from Git.
 
+On J's Windows account, `JD to Notion 서버 시작.lnk` in the user Startup folder
+starts the local server at sign-in without opening a browser. It runs
+`scripts/start-local-app.ps1` with `-NoBrowser -NoDialogs -EnsureRunning`, so an
+already healthy server is reused. The double-click launcher remains available
+for opening the app manually or recovering when the startup shortcut did not run.
+
 ## Notion Setup
 
 1. In the work Notion workspace, create a Notion internal connection.
@@ -265,7 +271,7 @@ callbacks without creating a clearer ownership boundary.
 
 ## Browser Regression Tests
 
-Run the isolated browser smoke tests with Microsoft Edge:
+Run the isolated browser smoke tests with desktop Google Chrome:
 
 ```powershell
 npm run test:browser
@@ -274,10 +280,11 @@ npm run test:browser
 The Playwright suite starts a temporary local server on `127.0.0.1:3210` and
 intercepts every `/api/*` request with test fixtures. It does not read from or
 write to the live Notion workspace, Google Spreadsheet, download folder, or
-Word output directory. The same Google Sheets and JANDI-to-Notion review flows
-run at desktop `1280×900` and mobile `390×844` viewports. Screenshots, traces,
-and other failure artifacts are stored in the Windows temporary directory, not
-inside the repository.
+Word output directory. The Google Sheets and JANDI-to-Notion review flows run
+only at the supported desktop `1280×900` viewport. Mobile and responsive
+viewports are outside this app's supported and required validation scope.
+Screenshots, traces, and other failure artifacts are stored in the Windows
+temporary directory, not inside the repository.
 
 ## Local Test Steps
 
@@ -307,9 +314,10 @@ The browser app accepts an automated JANDI import without requiring text selecti
 1. Let the Windows Startup shortcut launch the actively used `EDM.ahk`, or open
    `automation/jandi-to-admissions.ahk` with AutoHotkey v2 when testing the
    standalone backup.
-2. The local app server does not need to be started first. Pressing the F12
-   macro runs the shared launcher in ensure-running mode, reuses a healthy
-   server, or starts it in the background and waits until it is ready.
+2. The Windows Startup shortcut normally starts the local app server at sign-in.
+   Pressing the F12 macro still runs the shared launcher in ensure-running mode:
+   it reuses a healthy server, or starts one and waits until it is ready if the
+   sign-in launch did not complete.
 3. Configure the macro-keyboard key to send `Ctrl + Alt + Shift + F12`.
 4. In JANDI, place the mouse over the target message and press the macro key.
 5. The script first reads the hovered message from JANDI's Electron renderer through the local DevTools port, then activates the app, focuses the JANDI input, and pastes the sender, date, body, and links.

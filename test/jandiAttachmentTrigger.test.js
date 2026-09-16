@@ -26,11 +26,62 @@ test('triggers only when the fresh source context matches the message and attach
       now: () => now,
       runInspector: async (input) => calls.push(input)
     });
-    const result = await trigger.trigger({ message, filename: 'SOP final.docx' });
+    const result = await trigger.trigger({
+      message,
+      filename: 'SOP final.docx',
+      downloadsDirectory: directory
+    });
 
     assert.equal(result.status, 'triggered');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].filename, 'SOP final.docx');
+    assert.equal(calls[0].downloadsDirectory, directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('suppresses concurrent and recent duplicate JANDI attachment triggers', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'jandi-trigger-dedup-'));
+  const contextPath = path.join(directory, 'context.json');
+  const message = '은주하 SOP 1차\nSOP final.docx';
+  const now = Date.parse('2026-09-14T03:00:00.000Z');
+  let runCount = 0;
+  let releaseInspector;
+  const inspectorGate = new Promise((resolve) => {
+    releaseInspector = resolve;
+  });
+  await writeFile(contextPath, JSON.stringify({
+    capturedAt: new Date(now).toISOString(),
+    messageSha256: sha256(message),
+    attachmentNames: ['SOP final.docx'],
+    locator: { postId: '500' }
+  }));
+
+  try {
+    const trigger = createJandiAttachmentTrigger({
+      contextPath,
+      now: () => now,
+      runInspector: async () => {
+        runCount += 1;
+        await inspectorGate;
+      }
+    });
+    const input = { message, filename: 'SOP final.docx', downloadsDirectory: directory };
+    const first = trigger.trigger(input);
+    const second = trigger.trigger(input);
+    releaseInspector();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    const thirdResult = await trigger.trigger(input);
+
+    assert.equal(firstResult.status, 'triggered');
+    assert.equal(secondResult.status, 'triggered');
+    assert.equal(
+      [firstResult, secondResult].filter((result) => result.duplicateSuppressed).length,
+      1
+    );
+    assert.equal(thirdResult.duplicateSuppressed, true);
+    assert.equal(runCount, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

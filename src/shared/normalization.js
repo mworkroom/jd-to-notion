@@ -88,10 +88,10 @@ export function getMajorSearchKey(programmeName) {
   return normalizeForComparison(splitProgrammeName(programmeName).subject);
 }
 
-export function getProposedMajorName(programmeName, fallbackDegreeLabel = null) {
+export function getProposedMajorName(programmeName, preferredDegreeLabel = null) {
   const normalized = normalizeWhitespace(programmeName);
   const parsed = splitProgrammeName(normalized);
-  const degreeLabel = parsed.degreeLabel ?? canonicalDegreeLabel(fallbackDegreeLabel);
+  const degreeLabel = canonicalDegreeLabel(preferredDegreeLabel) ?? parsed.degreeLabel;
 
   if (!degreeLabel || !parsed.subject) {
     return normalized;
@@ -123,21 +123,41 @@ export function deriveProgrammeFields(programme) {
   const programmeNameOriginal = programme.programmeNameOriginal ?? '';
   const parsed = splitProgrammeName(programmeNameOriginal);
   const urlDegreeLabels = getProgrammeUrlDegreeLabels(programme.programmeUrl);
-  const inferredDegreeLabel = !parsed.degreeLabel
-    && !parsed.ambiguous
-    && urlDegreeLabels.length === 1
+  const urlDegreeLabel = !parsed.ambiguous && urlDegreeLabels.length === 1
     ? urlDegreeLabels[0]
     : null;
+  const inferredDegreeLabel = !parsed.degreeLabel
+    && urlDegreeLabel
+    ? urlDegreeLabel
+    : null;
+  const correctedDegree = parsed.degreeLabel
+    && urlDegreeLabel
+    && parsed.degreeLabel !== urlDegreeLabel
+    ? {
+        requestedDegreeLabel: parsed.degreeLabel,
+        urlDegreeLabel
+      }
+    : null;
+  const hasManualOverride = typeof programme.notionMajorNameOverride === 'string';
+  const notionMajorNameOverride = hasManualOverride
+    ? getProposedMajorName(programme.notionMajorNameOverride)
+    : null;
+  const automaticallyProposedName = getProposedMajorName(programmeNameOriginal, urlDegreeLabel);
+  const notionMajorNameProposed = hasManualOverride
+    ? notionMajorNameOverride
+    : automaticallyProposedName;
   const degreeReviewReason = getDegreeReviewReason({ parsed, urlDegreeLabels });
 
   return {
     ...programme,
-    majorSearchKey: getMajorSearchKey(programmeNameOriginal),
-    notionMajorNameProposed: getProposedMajorName(programmeNameOriginal, inferredDegreeLabel),
+    majorSearchKey: getMajorSearchKey(notionMajorNameProposed),
+    notionMajorNameProposed,
+    notionMajorNameOverride,
     inferredDegreeLabel,
+    correctedDegree,
     urlDegreeLabels,
-    degreeReviewReason,
-    needsMajorNameReview: Boolean(degreeReviewReason)
+    degreeReviewReason: hasManualOverride ? null : degreeReviewReason,
+    needsMajorNameReview: hasManualOverride ? false : Boolean(degreeReviewReason)
   };
 }
 
@@ -147,13 +167,6 @@ function getDegreeReviewReason({ parsed, urlDegreeLabels }) {
   }
   if (urlDegreeLabels.length > 1) {
     return 'url-degree-ambiguous';
-  }
-  if (
-    parsed.degreeLabel
-    && urlDegreeLabels.length === 1
-    && parsed.degreeLabel !== urlDegreeLabels[0]
-  ) {
-    return 'programme-url-degree-conflict';
   }
   if (!parsed.degreeLabel && urlDegreeLabels.length === 0) {
     return 'degree-missing';

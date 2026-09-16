@@ -291,7 +291,7 @@ test('요청 검토 패널에서 학과 추가·수정·삭제와 검증 상태�
   await expect(page.getByRole('button', { name: 'Notion 항목 확인' })).toBeDisabled();
 
   await page.locator('[data-programme-index="1"][data-field="universityName"]').fill('York');
-  await page.locator('[data-programme-index="1"][data-field="programmeNameOriginal"]').fill('MSc Data Science');
+  await page.locator('[data-programme-index="1"][data-field="notionMajorNameOverride"]').fill('MSc Data Science');
   await page.locator('[data-programme-index="1"][data-field="programmeUrl"]').fill('https://www.york.ac.uk/study/postgraduate-taught/courses/msc-data-science/');
 
   await expect(page.locator('#programme-list .programme-row').nth(1)).toContainText('York · Data Science MSc');
@@ -302,6 +302,100 @@ test('요청 검토 패널에서 학과 추가·수정·삭제와 검증 상태�
   await expect(page.locator('#programme-list .programme-row')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Notion 항목 확인' })).toBeEnabled();
   expect(api.notionPreviewRequests).toEqual([]);
+  expect(api.unexpectedRequests).toEqual([]);
+  expect(api.browserErrors).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+});
+
+test('URL 학위가 요청글보다 우선하며 Proposed Notion Major name을 직접 수정할 수 있다', async ({ page }) => {
+  const conflictingDegreeExtraction = {
+    extraction: {
+      requestType: 'admissions',
+      requesterName: '테스트 담당자',
+      requestDateTime: '2026-09-14T21:00:00+09:00',
+      studentName: '조명상',
+      programmes: [
+        {
+          universityName: 'University of Birmingham',
+          programmeNameOriginal: 'MA Educational Leadership and Management',
+          programmeUrl: 'https://www.birmingham.ac.uk/study/postgraduate/subjects/teacher-education-courses/educational-leadership-and-management-ma'
+        },
+        {
+          universityName: 'University of Manchester',
+          programmeNameOriginal: 'MSc Educational Leadership',
+          programmeUrl: 'https://www.manchester.ac.uk/study/masters/courses/list/08289/ma-educational-leadership/'
+        },
+        {
+          universityName: 'University of Nottingham',
+          programmeNameOriginal: 'MA Educational Leadership and Management',
+          programmeUrl: 'https://www.nottingham.ac.uk/pgstudy/course/taught/management-msc'
+        }
+      ],
+      extractionWarnings: []
+    },
+    errors: {}
+  };
+  const api = await installApiFixtures(page, {
+    extractionResponse: conflictingDegreeExtraction
+  });
+
+  await page.goto('/');
+  await page.locator('#jandi-message').fill('조명상님 학위 충돌 회귀 테스트');
+  await page.getByRole('button', { name: 'Analyze' }).click();
+
+  const proposedInputs = page.locator('[data-field="notionMajorNameOverride"]');
+  await expect(proposedInputs.nth(0)).toHaveValue('Educational Leadership and Management MA');
+  await expect(proposedInputs.nth(1)).toHaveValue('Educational Leadership MA');
+  await expect(proposedInputs.nth(2)).toHaveValue('Educational Leadership and Management MSc');
+  await expect(page.locator('#programme-list')).toContainText('요청글의 MSc 대신 URL 기준 MA로 자동 보정했습니다.');
+  await expect(page.locator('#programme-list')).toContainText('요청글의 MA 대신 URL 기준 MSc로 자동 보정했습니다.');
+
+  const manchesterProposed = proposedInputs.nth(1);
+  await manchesterProposed.focus();
+  await manchesterProposed.evaluate((input) => {
+    input.setSelectionRange(input.value.length - 2, input.value.length);
+  });
+  await manchesterProposed.press('Delete');
+  await expect(manchesterProposed).toHaveValue('Educational Leadership ');
+  await manchesterProposed.type('MEd');
+  await expect(manchesterProposed).toHaveValue('Educational Leadership MEd');
+  await manchesterProposed.press('Tab');
+
+  await expect(page.locator('[data-programme-index="1"][data-field="notionMajorNameOverride"]')).toHaveValue('Educational Leadership MEd');
+  await expect(page.locator('#programme-list .programme-row').nth(1)).toContainText('University of Manchester · Educational Leadership MEd');
+  await expect(page.locator('#programme-list .programme-row').nth(1)).toContainText('직접 수정한 Notion 학과명을 사용합니다.');
+  expect(api.unexpectedRequests).toEqual([]);
+  expect(api.browserErrors).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+});
+
+test('Markdown URL과 같은 줄의 학교 괄호 학과를 분리한다', async ({ page }) => {
+  const api = await installApiFixtures(page, { useRealExtraction: true });
+  const message = [
+    '최승미',
+    '2026/09/16 AM 11:21',
+    '[업무요청] 오서연 입학요강 정리',
+    '@Marion Lee (정규감수) 안녕하세요 :)',
+    '27년도 영국 석사 입학요강 3개교 요청 부탁드립니다.',
+    '감사합니다!',
+    'Durham(International Business MSc) [https://www.durham.ac.uk/business/courses/international-business-n2pd09/](https://www.durham.ac.uk/business/courses/international-business-n2pd09/)',
+    'Leeds (International Business) [https://courses.leeds.ac.uk/e763/international-business-msc](https://courses.leeds.ac.uk/e763/international-business-msc)',
+    'Warwick (International Trade, Strategy and Operations MSc) [https://warwick.ac.uk/study/postgraduate/courses/msc-international-trade/](https://warwick.ac.uk/study/postgraduate/courses/msc-international-trade/)'
+  ].join('\n');
+
+  await page.goto('/');
+  await page.locator('#jandi-message').fill(message);
+  await page.getByRole('button', { name: 'Analyze' }).click();
+
+  await expect(page.locator('#analysis-status')).toContainText('Extraction complete');
+  await expect(page.locator('#programme-list .programme-row')).toHaveCount(3);
+  await expect(page.locator('[data-field="notionMajorNameOverride"]').nth(0)).toHaveValue('International Business MSc');
+  await expect(page.locator('[data-field="notionMajorNameOverride"]').nth(1)).toHaveValue('International Business MSc');
+  await expect(page.locator('[data-field="notionMajorNameOverride"]').nth(2)).toHaveValue('International Trade, Strategy and Operations MSc');
+  await expect(page.locator('#programme-list .programme-row').nth(0)).toContainText('Durham · International Business MSc');
+  await expect(page.locator('#programme-list .programme-row').nth(1)).toContainText('Leeds · International Business MSc');
+  await expect(page.locator('#programme-list .programme-row').nth(2)).toContainText('Warwick · International Trade, Strategy and Operations MSc');
+  await expect(page.locator('#programme-list')).not.toContainText('DurhamInternational');
   expect(api.unexpectedRequests).toEqual([]);
   expect(api.browserErrors).toEqual([]);
   await expectNoHorizontalOverflow(page);
@@ -543,6 +637,64 @@ test('SOP 첨부파일 감시가 arm, 완료 표시, Clear 취소까지 격리�
   await expectNoHorizontalOverflow(page);
 });
 
+test('SOP 회차가 충돌해도 학생명과 첨부파일이 확정되면 다운로드를 시작하고 Notion 조회는 막는다', async ({ page }) => {
+  const message = [
+    '오유리',
+    '2026/09/15 PM 04:38',
+    '[업무요청] 송모민님 SOP 1차 감수요청',
+    '지원하는 송모민님의 SOP 감수요청 드립니다.',
+    '송모민 University of Sussex SOP 2차 0915.docx'
+  ].join('\n');
+  const extractionResponse = {
+    extraction: {
+      ...sopExtractionFixture.extraction,
+      requesterName: '오유리',
+      requestDateTime: '2026-09-15T16:38:00+09:00',
+      studentName: '송모민',
+      sopReview: { round: null, language: '영문' }
+    },
+    errors: {
+      sopReviewRound: 'SOP review round must be 1, 2, or 3 and cannot be ambiguous.'
+    }
+  };
+  const filename = '송모민 University of Sussex SOP 2차 0915.docx';
+  const api = await installApiFixtures(page, {
+    extractionResponse,
+    extractionStatus: 422,
+    sopDownloadFixture: {
+      arm: {
+        id: 'sop-context-round-conflict',
+        status: 'armed',
+        attachmentNames: [filename],
+        selectedAttachmentName: filename,
+        autoDownloadStatus: 'triggered',
+        rosterCheck: 'available'
+      },
+      status: {
+        id: 'sop-context-round-conflict',
+        status: 'completed',
+        originalFilename: filename,
+        filename
+      }
+    }
+  });
+
+  await page.goto('/');
+  await page.locator('#jandi-message').fill(message);
+  await page.getByRole('button', { name: 'Analyze' }).click();
+
+  await expect(page.locator('#analysis-status')).toContainText('Extraction needs correction');
+  await expect(page.locator('[data-error-for="sopReviewRound"]')).toBeVisible();
+  await expect(page.locator('#sop-download-status')).toContainText('파일명 확인 완료');
+  await expect(page.getByRole('button', { name: 'Notion 항목 확인' })).toBeDisabled();
+  expect(api.sopArmRequests).toEqual([{ studentName: '송모민', message, autoDownload: true }]);
+  expect(api.notionPreviewRequests).toEqual([]);
+  expect(api.unexpectedRequests).toEqual([]);
+  expect(api.browserErrors).toHaveLength(1);
+  expect(api.browserErrors[0]).toContain('422 (Unprocessable Entity)');
+  await expectNoHorizontalOverflow(page);
+});
+
 test('SOP 후보가 여러 개면 자동 클릭을 보류하고 수동 선택을 안내한다', async ({ page }) => {
   const message = [
     '테스트 담당자',
@@ -676,6 +828,8 @@ test('댓글 SOP의 신규 학생은 Jandi Unknown 안내와 함께 자동 전�
 
 async function installApiFixtures(page, {
   extractionResponse = extractionFixture,
+  extractionStatus = 200,
+  useRealExtraction = false,
   sopDownloadFixture = null,
   notionSchemaResponse = {
     ok: true,
@@ -740,7 +894,11 @@ async function installApiFixtures(page, {
       return;
     }
     if (requestKey === 'POST /api/extract') {
-      await fulfillJson(route, extractionResponse);
+      if (useRealExtraction) {
+        await route.continue();
+        return;
+      }
+      await fulfillJson(route, extractionResponse, extractionStatus);
       return;
     }
     if (requestKey === 'GET /api/notion/schema') {

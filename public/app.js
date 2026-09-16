@@ -206,7 +206,7 @@ async function analyzeMessage() {
     elements.analysisStatus.textContent = response.ok
       ? 'Extraction complete. Review every field before using the filename.'
       : 'Extraction needs correction. Missing fields are marked below.';
-    if (response.ok && requestState.requestType === SOP_REQUEST_TYPE) {
+    if (requestState.requestType === SOP_REQUEST_TYPE && requestState.studentName.trim()) {
       void sopDownloadPanel.arm();
     } else {
       void sopDownloadPanel.cancel();

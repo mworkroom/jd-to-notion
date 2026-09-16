@@ -165,6 +165,32 @@ test('rearms the watcher after edits without clicking the JANDI attachment again
   }
 });
 
+test('reuses one active auto-download arm for an immediate duplicate request', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sop-download-dedup-'));
+  let triggerCount = 0;
+  const service = testService(directory, {
+    triggerJandiDownload: async () => {
+      triggerCount += 1;
+      return { status: 'triggered', reason: '' };
+    }
+  });
+  const input = {
+    studentName: '은주하',
+    message: 'Personal Statement final.docx'
+  };
+
+  try {
+    const first = await service.arm(input);
+    const second = await service.arm(input);
+
+    assert.equal(second.id, first.id);
+    assert.equal(triggerCount, 1);
+  } finally {
+    service.cancel();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 function testService(directory, options = {}) {
   return createSopDownloadService({
     downloadsDirectory: directory,

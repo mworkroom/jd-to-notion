@@ -28,6 +28,7 @@ export default defineConfig({
     timeout: 15_000,
     env: {
       PORT: String(port),
+      ADMISSIONS_CYCLE: '2026/27',
       NOTION_CREATION_ENABLED: 'false',
       GOOGLE_SHEETS_ENABLED: 'false',
       GOOGLE_SHEETS_WRITE_ENABLED: 'false',
@@ -36,17 +37,10 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'desktop-edge',
+      name: 'desktop-chrome',
       use: {
-        channel: 'msedge',
+        channel: 'chrome',
         viewport: { width: 1280, height: 900 }
-      }
-    },
-    {
-      name: 'mobile-edge',
-      use: {
-        channel: 'msedge',
-        viewport: { width: 390, height: 844 }
       }
     }
   ]

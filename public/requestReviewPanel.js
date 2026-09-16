@@ -28,6 +28,9 @@ export function normalizeRequest(extraction) {
       universityAliasMatchSource: programme.universityAliasMatchSource ?? null,
       rawProgrammeName: programme.rawProgrammeName ?? programme.programmeNameOriginal ?? '',
       programmeNameOriginal: programme.programmeNameOriginal ?? '',
+      notionMajorNameOverride: typeof programme.notionMajorNameOverride === 'string'
+        ? programme.notionMajorNameOverride
+        : null,
       programmeUrl: programme.programmeUrl ?? ''
     })),
     extractionWarnings: Array.isArray(extraction?.extractionWarnings)
@@ -77,8 +80,8 @@ export function validateRequest(request) {
     if (!programme.universityName.trim()) {
       errors[`programmes.${index}.universityName`] = '대학 이름이 필요합니다.';
     }
-    if (!programme.programmeNameOriginal.trim()) {
-      errors[`programmes.${index}.programmeNameOriginal`] = '학과 이름이 필요합니다.';
+    if (!programme.notionMajorNameProposed.trim()) {
+      errors[`programmes.${index}.notionMajorNameOverride`] = '학과 이름이 필요합니다.';
     }
     if (!programme.programmeUrl.trim()) {
       errors[`programmes.${index}.programmeUrl`] = '학과 URL이 필요합니다.';
@@ -198,7 +201,7 @@ export function initializeRequestReviewPanel({
               <span class="programme-number">${index + 1}.</span>
               ${escapeHtml(programme.universityName || 'University not set')}
               <span aria-hidden="true">·</span>
-              ${escapeHtml(programme.notionMajorNameProposed || 'Programme not set')}
+              <span data-programme-proposed="${index}">${escapeHtml(programme.notionMajorNameProposed || 'Programme not set')}</span>
             </h4>
           </div>
           <span class="programme-status programme-status--${status.tone}">${escapeHtml(status.label)}</span>
@@ -217,8 +220,8 @@ export function initializeRequestReviewPanel({
           </label>
           <label>
             Proposed Notion Major name
-            <input type="text" data-programme-index="${index}" data-field="programmeNameOriginal" value="${escapeHtml(programme.notionMajorNameProposed)}">
-            <span class="field-error" data-error-for="programmes.${index}.programmeNameOriginal"></span>
+            <input type="text" data-programme-index="${index}" data-field="notionMajorNameOverride" value="${escapeHtml(programme.notionMajorNameProposed)}">
+            <span class="field-error" data-error-for="programmes.${index}.notionMajorNameOverride"></span>
           </label>
           <div class="programme-url-field">
             <span class="field-label">Programme URL</span>
@@ -262,8 +265,10 @@ export function initializeRequestReviewPanel({
             </label>
           </div>
         </details>
-        ${programme.inferredDegreeLabel ? `<p class="programme-review-note">URL에서 학위명 ${escapeHtml(programme.inferredDegreeLabel)}를 자동 보완했습니다.</p>` : ''}
-        ${programme.needsMajorNameReview ? `<p class="programme-review-note">${escapeHtml(getDegreeReviewMessage(programme))}</p>` : ''}
+        ${programme.correctedDegree && programme.notionMajorNameOverride === null ? `<p class="programme-review-note" data-automatic-degree-note="${index}">요청글의 ${escapeHtml(programme.correctedDegree.requestedDegreeLabel)} 대신 URL 기준 ${escapeHtml(programme.correctedDegree.urlDegreeLabel)}로 자동 보정했습니다.</p>` : ''}
+        ${programme.inferredDegreeLabel && programme.notionMajorNameOverride === null ? `<p class="programme-review-note" data-automatic-degree-note="${index}">URL에서 학위명 ${escapeHtml(programme.inferredDegreeLabel)}를 자동 보완했습니다.</p>` : ''}
+        <p class="programme-review-note ${programme.notionMajorNameOverride === null ? 'hidden' : ''}" data-manual-major-note="${index}">직접 수정한 Notion 학과명을 사용합니다.</p>
+        ${programme.needsMajorNameReview ? `<p class="programme-review-note" data-degree-review-note="${index}">${escapeHtml(getDegreeReviewMessage(programme))}</p>` : ''}
       `;
 
       elements.programmeList.append(row);
@@ -271,6 +276,9 @@ export function initializeRequestReviewPanel({
 
     elements.programmeList.querySelectorAll('[data-programme-index]').forEach((input) => {
       input.addEventListener('input', updateProgrammeField);
+      if (input.dataset.field === 'notionMajorNameOverride') {
+        input.addEventListener('change', normalizeManualProgrammeInput);
+      }
     });
     elements.programmeList.querySelectorAll('[data-remove-programme]').forEach((button) => {
       button.addEventListener('click', removeProgramme);
@@ -286,11 +294,41 @@ export function initializeRequestReviewPanel({
     );
     requestState.programmes[index][field] = event.target.value;
     requestState.programmes[index] = deriveProgrammeFields(requestState.programmes[index]);
-    renderProgrammes(requestState);
+    if (field === 'notionMajorNameOverride') {
+      updateManualProgrammeDisplay(index, requestState.programmes[index]);
+    } else {
+      renderProgrammes(requestState);
+    }
     onRequestChange({
       invalidationMessage: '학과 정보가 변경되어 Notion 항목을 다시 조회해야 합니다.',
       scheduleSopRearm: false
     });
+  }
+
+  function normalizeManualProgrammeInput(event) {
+    const { requestState } = getContext();
+    const index = Number(event.target.dataset.programmeIndex);
+    event.target.value = requestState.programmes[index].notionMajorNameProposed;
+  }
+
+  function updateManualProgrammeDisplay(index, programme) {
+    const row = elements.programmeList.querySelectorAll('.programme-row')[index];
+    const proposedName = row?.querySelector(`[data-programme-proposed="${index}"]`);
+    const statusElement = row?.querySelector('.programme-status');
+    const manualNote = row?.querySelector(`[data-manual-major-note="${index}"]`);
+    const status = getProgrammeStatus(programme, []);
+
+    if (proposedName) {
+      proposedName.textContent = programme.notionMajorNameProposed || 'Programme not set';
+    }
+    if (statusElement) {
+      statusElement.className = `programme-status programme-status--${status.tone}`;
+      statusElement.textContent = status.label;
+    }
+    row?.querySelectorAll('[data-automatic-degree-note], [data-degree-review-note]').forEach((note) => {
+      note.classList.add('hidden');
+    });
+    manualNote?.classList.remove('hidden');
   }
 
   function addProgramme() {
@@ -360,7 +398,7 @@ function formatExtractionWarning(warning) {
 
 function getProgrammeStatus(programme, warnings) {
   const missingRequiredField = !programme.universityName.trim()
-    || !programme.programmeNameOriginal.trim()
+    || !programme.notionMajorNameProposed.trim()
     || !programme.programmeUrl.trim();
   if (missingRequiredField || warnings.some((warning) => warning.severity === 'error')) {
     return { tone: 'error', label: '확인 필요' };
@@ -374,9 +412,6 @@ function getProgrammeStatus(programme, warnings) {
 function getDegreeReviewMessage(programme) {
   if (programme.degreeReviewReason === 'url-degree-ambiguous') {
     return `URL에서 복수 학위(${programme.urlDegreeLabels.join(', ')})가 확인되어 수동 확인이 필요합니다.`;
-  }
-  if (programme.degreeReviewReason === 'programme-url-degree-conflict') {
-    return `학과명과 URL의 학위가 서로 달라 수동 확인이 필요합니다. URL 학위: ${programme.urlDegreeLabels[0]}`;
   }
   if (programme.degreeReviewReason === 'degree-missing') {
     return '학과명과 URL에서 학위명을 확인하지 못했습니다.';

@@ -1,10 +1,13 @@
 import net from 'node:net';
 import crypto from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { restoreLinkedUrls } from './jandi-message-text.mjs';
-import { extractSopAttachmentNames } from '../src/shared/sopFilename.js';
+import {
+  extractSopAttachmentNames,
+  matchesExpectedDownloadName
+} from '../src/shared/sopFilename.js';
 import {
   JANDI_COMMENT_MARKER,
   JANDI_PARENT_MARKER,
@@ -17,6 +20,8 @@ const listAttachmentsMode = process.argv.includes('--list-attachments');
 const listPostId = process.argv.find((argument) => argument.startsWith('--post='))?.slice(7) ?? '';
 const outputPath = process.argv.find((argument) => argument.startsWith('--output='))?.slice(9);
 const downloadFilename = process.argv.find((argument) => argument.startsWith('--download='))?.slice(11);
+const downloadsDirectory = process.argv
+  .find((argument) => argument.startsWith('--download-dir='))?.slice(15);
 const defaultContextPath = fileURLToPath(
   new URL('../.local/jandi-source-context.json', import.meta.url)
 );
@@ -37,7 +42,12 @@ if (listAttachmentsMode) {
   process.exit(0);
 }
 if (downloadFilename) {
-  await clickStoredAttachment({ client, contextPath, filename: downloadFilename });
+  await clickStoredAttachment({
+    client,
+    contextPath,
+    filename: downloadFilename,
+    downloadsDirectory
+  });
   client.close();
   process.exit(0);
 }
@@ -244,8 +254,11 @@ async function listVisibleAttachments(client, postId = '') {
   return result.result?.result?.value ?? [];
 }
 
-async function clickStoredAttachment({ client, contextPath, filename }) {
+async function clickStoredAttachment({ client, contextPath, filename, downloadsDirectory }) {
   const context = JSON.parse(readFileSync(contextPath, 'utf8'));
+  const downloadBaseline = downloadsDirectory
+    ? readExpectedDownloadState(downloadsDirectory, filename)
+    : null;
   const expression = [
     '(() => {',
     'const locator = ' + JSON.stringify(context.locator ?? {}) + ';',
@@ -296,9 +309,19 @@ async function clickStoredAttachment({ client, contextPath, filename }) {
     button: 'left',
     clickCount: 1
   });
-  await wait(650);
-  const viewerDownload = await locateViewerDownload(client, filename);
-  if (viewerDownload?.status === 'ready') {
+  const firstClickStartedDownload = downloadBaseline
+    ? await waitForDownloadActivity({
+        downloadsDirectory,
+        filename,
+        baseline: downloadBaseline,
+        timeoutMs: 2_000
+      })
+    : true;
+  let viewerDownload = { status: 'not_found' };
+  if (!firstClickStartedDownload) {
+    viewerDownload = await locateViewerDownload(client, filename);
+  }
+  if (viewerDownload.status === 'ready') {
     await client.call('Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x: viewerDownload.x,
@@ -317,7 +340,8 @@ async function clickStoredAttachment({ client, contextPath, filename }) {
   console.log(JSON.stringify({
     status: 'clicked',
     filename,
-    viewerDownloadClicked: viewerDownload?.status === 'ready'
+    firstClickStartedDownload,
+    viewerDownloadClicked: viewerDownload.status === 'ready'
   }));
 }
 
@@ -346,6 +370,64 @@ async function locateViewerDownload(client, filename) {
 
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForDownloadActivity({
+  downloadsDirectory,
+  filename,
+  baseline,
+  timeoutMs
+}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const current = readExpectedDownloadState(downloadsDirectory, filename);
+    for (const [name, metadata] of current) {
+      const previous = baseline.get(name);
+      if (!previous
+        || previous.size !== metadata.size
+        || previous.mtimeMs !== metadata.mtimeMs) {
+        return true;
+      }
+    }
+    await wait(100);
+  }
+  return false;
+}
+
+function readExpectedDownloadState(downloadsDirectory, filename) {
+  const state = new Map();
+  try {
+    for (const entry of readdirSync(downloadsDirectory, { withFileTypes: true })) {
+      if (!entry.isFile() || !matchesDownloadActivityName(entry.name, filename)) {
+        continue;
+      }
+      try {
+        const metadata = statSync(path.join(downloadsDirectory, entry.name));
+        state.set(entry.name, {
+          size: metadata.size,
+          mtimeMs: metadata.mtimeMs
+        });
+      } catch {
+        // The JANDI app may rename a temporary download between listing and stat.
+      }
+    }
+  } catch {
+    // The server already validates this folder; a transient read failure only disables the fallback click.
+  }
+  return state;
+}
+
+function matchesDownloadActivityName(actualFilename, expectedFilename) {
+  if (matchesExpectedDownloadName(actualFilename, expectedFilename)) {
+    return true;
+  }
+  const temporaryExtension = ['.crdownload', '.download', '.part', '.tmp']
+    .find((extension) => actualFilename.toLowerCase().endsWith(extension));
+  return Boolean(temporaryExtension
+    && matchesExpectedDownloadName(
+      actualFilename.slice(0, -temporaryExtension.length),
+      expectedFilename
+    ));
 }
 
 function sha256(value) {
