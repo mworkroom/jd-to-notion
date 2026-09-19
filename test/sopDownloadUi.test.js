@@ -44,7 +44,10 @@ test('JANDI extractor keeps post and comment attachments in separate source scop
   const inspector = await readFile(new URL('../automation/inspect-jandi-cdp.mjs', import.meta.url), 'utf8');
 
   assert.match(inspector, /commentContainer/u);
-  assert.match(inspector, /!element\.closest\('\.comment-item\.article-comment'\)/u);
+  assert.match(inspector, /detail-container\.msg-thread-detail/u);
+  assert.match(inspector, /selectJandiRequestComment/u);
+  assert.match(inspector, /formatJandiSelectedAttachments/u);
+  assert.match(inspector, /commentId/u);
   assert.match(inspector, /const scopedElements/u);
   assert.match(inspector, /onPreviewClick/u);
   assert.match(inspector, /locateViewerDownload/u);

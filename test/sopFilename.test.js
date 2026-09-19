@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   extractDocxAttachmentNames,
+  extractSopAttachmentNames,
   extractPotentialStudentNameTokens,
   matchesExpectedDownloadName,
   normalizeSopFilename
 } from '../src/shared/sopFilename.js';
+import { formatJandiSelectedAttachments } from '../src/shared/jandiMessageContext.js';
 
 test('extracts unique DOCX attachment names from JANDI message text', () => {
   const names = extractDocxAttachmentNames([
@@ -20,6 +22,24 @@ test('extracts unique DOCX attachment names from JANDI message text', () => {
     'SOP_1차_0731.docx',
     'Personal essay 최종(은주하).docx'
   ]);
+});
+
+test('selected JANDI comment attachments override filenames from older thread context', () => {
+  const message = formatJandiSelectedAttachments([
+    '신민수_Warwick_MSc_Marketing_SOP_Korean.docx',
+    '[2026입학요강] 신민수님_Marketing.pdf',
+    '신민수_Warwick_MSc_Marketing_SOP_Korean_revised(2)_091626_.docx'
+  ].join('\n'), ['신민수_Warwick_MSc_Marketing_SOP_Korean_revised(2).docx']);
+
+  assert.deepEqual(extractSopAttachmentNames(message), [
+    '신민수_Warwick_MSc_Marketing_SOP_Korean_revised(2).docx'
+  ]);
+});
+
+test('empty selected JANDI comment attachment scope does not reuse parent files', () => {
+  const message = formatJandiSelectedAttachments('이전_SOP.docx', []);
+
+  assert.deepEqual(extractSopAttachmentNames(message), []);
 });
 
 test('normalizes missing, trailing, wrapped, and middle student names', () => {

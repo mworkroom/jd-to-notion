@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { JANDI_SELECTED_ATTACHMENTS_MARKER } from './jandiMessageContext.js';
 
 const SOP_ATTACHMENT_EXTENSIONS = new Set(['.docx', '.pdf']);
 const DOCX_EXTENSION = '.docx';
@@ -30,8 +31,13 @@ export function extractDocxAttachmentNames(message) {
 
 export function extractSopAttachmentNames(message) {
   const names = [];
+  const rawMessage = String(message ?? '');
+  const markerIndex = rawMessage.indexOf(JANDI_SELECTED_ATTACHMENTS_MARKER);
+  const attachmentSource = markerIndex === -1
+    ? rawMessage
+    : rawMessage.slice(markerIndex + JANDI_SELECTED_ATTACHMENTS_MARKER.length);
 
-  for (const rawLine of String(message ?? '').split(/\r?\n/)) {
+  for (const rawLine of attachmentSource.split(/\r?\n/)) {
     const line = rawLine.replace(/[\u200B-\u200D\uFEFF]/gu, '').trim();
     const extensionMatches = [...line.matchAll(/\.(?:docx|pdf)(?=\s|$)/giu)];
     const extensionMatch = extensionMatches.at(-1);

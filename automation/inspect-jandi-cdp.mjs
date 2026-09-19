@@ -11,7 +11,10 @@ import {
 import {
   JANDI_COMMENT_MARKER,
   JANDI_PARENT_MARKER,
-  formatJandiCommentMessage
+  formatJandiCommentMessage,
+  formatJandiSelectedAttachments,
+  isLikelyJandiRequestMessage,
+  selectJandiRequestComment
 } from '../src/shared/jandiMessageContext.js';
 
 const endpoint = process.argv.find((argument) => argument.startsWith('http')) ?? 'http://127.0.0.1:9222';
@@ -54,29 +57,40 @@ if (downloadFilename) {
 
 const restoreLinkedUrlsSource = restoreLinkedUrls.toString();
 const formatJandiCommentMessageSource = formatJandiCommentMessage.toString();
+const isLikelyJandiRequestMessageSource = isLikelyJandiRequestMessage.toString();
+const selectJandiRequestCommentSource = selectJandiRequestComment.toString();
 const expression = extractMode
   ? `(() => {
       const restoreLinkedUrls = ${restoreLinkedUrlsSource};
       const JANDI_COMMENT_MARKER = ${JSON.stringify(JANDI_COMMENT_MARKER)};
       const JANDI_PARENT_MARKER = ${JSON.stringify(JANDI_PARENT_MARKER)};
       const formatJandiCommentMessage = ${formatJandiCommentMessageSource};
+      const isLikelyJandiRequestMessage = ${isLikelyJandiRequestMessageSource};
+      const selectJandiRequestComment = ${selectJandiRequestCommentSource};
       const hovered = (element) => element.matches(':hover') || Boolean(element.querySelector(':hover'));
       const readVisibleText = (element) => String(element?.innerText ?? element?.textContent ?? '').trim();
+      const visible = (element) => {
+        const rect = element?.getBoundingClientRect();
+        return Boolean(rect && rect.width > 0 && rect.height > 0);
+      };
       const readAttachmentText = (container) => {
-        const commentContainer = container?.matches('.comment-item.article-comment') ? container : null;
+        const commentContainer = container?.matches('.comment-item') ? container : null;
         return [...(container?.querySelectorAll(
           'a, button, [role="button"], [class*="file"], [class*="attach"]'
         ) ?? [])]
         .filter((element) => commentContainer
-          ? element.closest('.comment-item.article-comment') === commentContainer
-          : !element.closest('.comment-item.article-comment'))
+          ? element.closest('.comment-item') === commentContainer
+          : !element.closest('.comment-item'))
         .flatMap((element) => String(element.innerText ?? element.textContent ?? '').split(/\\r?\\n/))
         .map((line) => line.trim())
         .filter((line) => /\\.(?:docx|pdf)(?:\\s|$)/i.test(line))
         .join('\\n');
       };
       const readMessage = (container, bodySelector, dateSelector = '.article-date, .fn-write-time') => {
-        const writer = readVisibleText(container?.querySelector('.fn-user-name'));
+        const writer = readVisibleText(
+          container?.querySelector('.fn-user-name .member-name')
+            ?? container?.querySelector('.fn-user-name')
+        );
         const date = readVisibleText(container?.querySelector(dateSelector));
         const body = container?.querySelector(bodySelector);
         const links = [...(body?.querySelectorAll('a[href]') ?? [])]
@@ -84,22 +98,94 @@ const expression = extractMode
         const text = restoreLinkedUrls(body?.innerText ?? '', links);
         return [writer, date, text].filter(Boolean).join('\\n');
       };
-      const comment = [...document.querySelectorAll('.comment-item.article-comment')].find(hovered);
-      if (comment) {
-        const parent = comment.closest('.message.article._message');
-        const commentMessage = readMessage(comment, '.comment-text-box', '.fn-write-time');
-        const parentMessage = readMessage(parent, '.article-body._messageBubbleTarget');
-        const parentCards = [...document.querySelectorAll('.message.article._message')];
+      const readThreadHeader = (panel) => {
+        const header = panel?.querySelector('.file-detail-header.msg-thread-header');
+        const writer = readVisibleText(
+          header?.querySelector('.fn-user-name .member-name')
+            ?? header?.querySelector('.fn-user-name')
+        );
+        const date = readVisibleText(header?.querySelector('.file-creator-time'));
+        const title = readVisibleText(header?.querySelector('.msg-thread-title'));
+        const body = header?.querySelector('.msg-thread-body');
+        const links = [...(body?.querySelectorAll('a[href]') ?? [])]
+          .map((link) => ({ href: link.href, text: link.innerText ?? link.textContent ?? '' }));
+        const text = restoreLinkedUrls(body?.innerText ?? '', links);
+        return [writer, date, title, text].filter(Boolean).join('\\n');
+      };
+      const selectRequestComment = (comments, selectedComment) => {
+        const selectedIndex = comments.indexOf(selectedComment);
+        const requestIndex = selectJandiRequestComment(
+          comments.map((item) => ({ message: readVisibleText(item.querySelector('.comment-text-box')) })),
+          selectedIndex
+        );
+        return comments[requestIndex] ?? null;
+      };
+      const mainComment = [...document.querySelectorAll('.comment-item.article-comment')].find(hovered);
+      if (mainComment) {
+        const parent = mainComment.closest('.message.article._message');
         const comments = [...(parent?.querySelectorAll('.comment-item.article-comment') ?? [])];
+        const requestComment = selectRequestComment(comments, mainComment);
+        const parentMessage = readMessage(parent, '.article-body._messageBubbleTarget');
+        const requestMessage = requestComment
+          ? formatJandiCommentMessage({
+              commentMessage: readMessage(requestComment, '.comment-text-box', '.fn-write-time'),
+              parentMessage
+            })
+          : parentMessage;
+        const parentCards = [...document.querySelectorAll('.message.article._message')];
         return {
-          message: formatJandiCommentMessage({ commentMessage, parentMessage }),
-          attachmentText: readAttachmentText(comment),
+          message: requestMessage,
+          attachmentText: readAttachmentText(mainComment),
           sourceType: 'comment',
           locator: {
             sourceType: 'comment',
+            surface: 'main',
             postId: parent?.id ?? '',
             postIndex: parentCards.indexOf(parent),
-            commentIndex: comments.indexOf(comment)
+            commentId: mainComment.id ?? '',
+            commentIndex: comments.indexOf(mainComment)
+          }
+        };
+      }
+      const detailPanels = [...document.querySelectorAll('.detail-container.msg-thread-detail')].filter(visible);
+      const detailPanel = detailPanels.find(hovered);
+      const detailComment = detailPanel
+        ? [...detailPanel.querySelectorAll('.comment-item')].find(hovered)
+        : null;
+      if (detailComment) {
+        const comments = [...detailPanel.querySelectorAll('.comment-item')];
+        const requestComment = selectRequestComment(comments, detailComment);
+        const parentMessage = readThreadHeader(detailPanel);
+        const requestMessage = requestComment
+          ? formatJandiCommentMessage({
+              commentMessage: readMessage(requestComment, '.comment-text-box', '.fn-write-time'),
+              parentMessage
+            })
+          : parentMessage;
+        return {
+          message: requestMessage,
+          attachmentText: readAttachmentText(detailComment),
+          sourceType: 'comment',
+          locator: {
+            sourceType: 'comment',
+            surface: 'detail',
+            panelIndex: detailPanels.indexOf(detailPanel),
+            commentId: detailComment.id ?? '',
+            commentIndex: comments.indexOf(detailComment)
+          }
+        };
+      }
+      const detailHeader = detailPanel?.querySelector('.file-detail-header.msg-thread-header');
+      if (detailHeader && hovered(detailHeader)) {
+        return {
+          message: readThreadHeader(detailPanel),
+          attachmentText: readAttachmentText(detailHeader),
+          sourceType: 'post',
+          locator: {
+            sourceType: 'post',
+            surface: 'detail',
+            panelIndex: detailPanels.indexOf(detailPanel),
+            commentIndex: -1
           }
         };
       }
@@ -113,6 +199,7 @@ const expression = extractMode
         sourceType: 'post',
         locator: {
           sourceType: 'post',
+          surface: 'main',
           postId: card.id ?? '',
           postIndex: cards.indexOf(card),
           commentIndex: -1
@@ -205,10 +292,7 @@ if (extractMode) {
     extractedMessage,
     typeof value === 'object' ? value?.attachmentText : ''
   ].filter(Boolean).join('\n'));
-  const completeMessage = [
-    extractedMessage,
-    ...attachmentNames.filter((filename) => !extractedMessage.includes(filename))
-  ].filter(Boolean).join('\n');
+  const completeMessage = formatJandiSelectedAttachments(extractedMessage, attachmentNames);
 
   if (!completeMessage) {
     process.exitCode = 2;
@@ -216,7 +300,7 @@ if (extractMode) {
     if (value?.locator) {
       mkdirSync(path.dirname(contextPath), { recursive: true });
       writeFileSync(contextPath, JSON.stringify({
-        version: 1,
+        version: 2,
         capturedAt: new Date().toISOString(),
         targetUrl: target.url,
         messageSha256: sha256(completeMessage),
@@ -264,15 +348,20 @@ async function clickStoredAttachment({ client, contextPath, filename, downloadsD
     'const locator = ' + JSON.stringify(context.locator ?? {}) + ';',
     'const expectedFilename = ' + JSON.stringify(filename) + ';',
     "const cards = [...document.querySelectorAll('.message.article._message')];",
-    'const card = locator.postId ? document.getElementById(locator.postId) : cards[locator.postIndex];',
-    "if (!card || !card.matches('.message.article._message')) return { status: 'not_found', reason: 'source_post_not_found' };",
-    "const source = locator.sourceType === 'comment' ? [...card.querySelectorAll('.comment-item.article-comment')][locator.commentIndex] : card;",
+    "const visible = (element) => { const rect = element?.getBoundingClientRect(); return Boolean(rect && rect.width > 0 && rect.height > 0); };",
+    "const detailPanels = [...document.querySelectorAll('.detail-container.msg-thread-detail')].filter(visible);",
+    "const card = locator.surface === 'detail' ? null : (locator.postId ? document.getElementById(locator.postId) : cards[locator.postIndex]);",
+    "const detailPanel = locator.surface === 'detail' ? detailPanels[locator.panelIndex] : null;",
+    "const commentSelector = locator.surface === 'detail' ? '.comment-item' : '.comment-item.article-comment';",
+    'const commentRoot = detailPanel ?? card;',
+    'const comments = [...(commentRoot?.querySelectorAll(commentSelector) ?? [])];',
+    "const source = locator.sourceType === 'comment' ? (comments.find((comment) => comment.id === locator.commentId) ?? comments[locator.commentIndex]) : (detailPanel?.querySelector('.file-detail-header.msg-thread-header') ?? card);",
     "if (!source) return { status: 'not_found', reason: 'source_comment_not_found' };",
     "const normalize = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim().toLowerCase();",
     'const expected = normalize(expectedFilename);',
     "const primaryClickableSelector = '[ng-click*=\"onPreviewClick\"],a[href],button,[role=\"button\"],[ng-click]';",
     "const clickableSelector = 'a[href],button,[role=\"button\"],[ng-click],[class*=\"file\"],[class*=\"attach\"]';",
-    "const scopedElements = [...source.querySelectorAll('*')].filter((element) => locator.sourceType === 'comment' ? element.closest('.comment-item.article-comment') === source : !element.closest('.comment-item.article-comment'));",
+    "const scopedElements = [...source.querySelectorAll('*')].filter((element) => locator.sourceType === 'comment' ? element.closest(commentSelector) === source : !element.closest(commentSelector));",
     "const textMatches = scopedElements.filter((element) => normalize(element.innerText ?? element.textContent).includes(expected)).sort((left, right) => normalize(left.innerText ?? left.textContent).length - normalize(right.innerText ?? right.textContent).length);",
     'for (const match of textMatches) {',
     'const clickable = match.matches(primaryClickableSelector) ? match : match.querySelector(primaryClickableSelector) ?? (match.matches(clickableSelector) ? match : match.closest(clickableSelector) ?? match.querySelector(clickableSelector));',

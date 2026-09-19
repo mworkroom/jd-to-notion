@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formatJandiCommentMessage,
+  formatJandiSelectedAttachments,
+  selectJandiRequestComment,
   splitJandiMessageContext
 } from '../src/shared/jandiMessageContext.js';
 import { mockExtractJandiMessage } from '../src/server/extraction/mockExtractor.js';
@@ -62,4 +64,27 @@ test('additional admissions programmes in a comment do not merge parent programm
     extraction.programmes.map((programme) => programme.universityName),
     ['UCL', 'KCL']
   );
+});
+
+test('delivery comment resolves to the nearest earlier request in the same thread', () => {
+  const comments = [
+    { message: '@김유진 신민수님 SOP 감수본 전달드려요.' },
+    { message: '@Marion Lee (정규감수) 신민수 SOP2차감수 요청드립니다. 감사합니다.' },
+    { message: '@김유진 신민수님 SOP 2차 감수본 전달드려요.' }
+  ];
+
+  assert.equal(selectJandiRequestComment(comments, 2), 1);
+  assert.equal(selectJandiRequestComment(comments, 1), 1);
+  assert.equal(selectJandiRequestComment(comments, 0), -1);
+});
+
+test('selected attachment block stays outside request and parent parsing context', () => {
+  const message = formatJandiSelectedAttachments(formatJandiCommentMessage({
+    commentMessage: '김유진\n2026/09/16 PM 03:38\n신민수 SOP2차감수 요청드립니다.',
+    parentMessage: '김유진\n2026/09/10 PM 02:14\n[업무요청] 신민수 SOP감수 요청'
+  }), ['신민수_SOP_2차.docx']);
+  const context = splitJandiMessageContext(message);
+
+  assert.doesNotMatch(context.parentMessage, /docx/u);
+  assert.equal(context.selectedAttachmentText, '신민수_SOP_2차.docx');
 });
